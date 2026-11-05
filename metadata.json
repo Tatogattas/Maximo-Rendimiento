@@ -1,6 +1,0 @@
-{
-  "name": "Service Hub",
-  "description": "Android application with foreground service, wake lock, battery optimization management, and system overlay window controls.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

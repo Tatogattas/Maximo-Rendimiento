@@ -5,16 +5,22 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -37,17 +43,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -62,6 +71,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -71,6 +81,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,12 +101,20 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
     private var overlayView: View? = null
     private var windowManager: WindowManager? = null
+    private var overlayJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,6 +131,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
     private fun showFloatingOverlay() {
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Overlay permission not granted", Toast.LENGTH_SHORT).show()
@@ -127,51 +147,207 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // Floating window parameters with draggable flags
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutParamsType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 80
-            y = 180
+            x = 60
+            y = 160
         }
 
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setBackgroundColor(android.graphics.Color.parseColor("#EE0F172A"))
-            setPadding(32, 24, 32, 24)
+        // Root container with 50% transparency:
+        // Color.argb(128, 15, 23, 42) -> 128/255 = 50% alpha!
+        val backgroundDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 24f
+            setColor(AndroidColor.argb(128, 15, 23, 42)) // 50% opacity slate
+            setStroke(2, AndroidColor.argb(128, 56, 189, 248)) // 50% opacity cyan border
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = backgroundDrawable
+            setPadding(28, 20, 28, 20)
             elevation = 16f
         }
 
-        val title = TextView(this).apply {
-            text = "Service Hub Overlay"
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
+        // Header with Drag Handle & Close Button
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
 
-        val closeBtn = Button(this).apply {
-            text = "Dismiss"
-            textSize = 12f
+        val titleView = TextView(this).apply {
+            text = "CPU Monitor (${CpuMonitor.getCoreCount()} Cores)"
+            setTextColor(AndroidColor.WHITE)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val closeButton = TextView(this).apply {
+            text = " ✕ "
+            setTextColor(AndroidColor.argb(220, 248, 113, 113))
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(12, 4, 12, 4)
             setOnClickListener { hideFloatingOverlay() }
         }
 
-        container.addView(title)
-        container.addView(closeBtn)
+        headerLayout.addView(titleView)
+        headerLayout.addView(closeButton)
+        container.addView(headerLayout)
+
+        // Total CPU Usage View
+        val totalCpuText = TextView(this).apply {
+            text = "Total CPU: 0%"
+            setTextColor(AndroidColor.argb(240, 56, 189, 248))
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setPadding(0, 10, 0, 4)
+        }
+        val totalProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(
+                dpToPx(190),
+                dpToPx(6)
+            ).apply {
+                bottomMargin = dpToPx(8)
+            }
+        }
+
+        container.addView(totalCpuText)
+        container.addView(totalProgressBar)
+
+        // Divider
+        val divider = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1
+            ).apply {
+                bottomMargin = dpToPx(8)
+            }
+            setBackgroundColor(AndroidColor.argb(70, 255, 255, 255))
+        }
+        container.addView(divider)
+
+        // Per-core views holder
+        val coresContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        container.addView(coresContainer)
+
+        val coreTextViews = mutableListOf<TextView>()
+        val coreProgressBars = mutableListOf<ProgressBar>()
+
+        val coreCount = CpuMonitor.getCoreCount()
+        for (i in 0 until coreCount) {
+            val coreRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dpToPx(4)
+                }
+            }
+
+            val coreLabel = TextView(this).apply {
+                text = "Core $i: 0%"
+                setTextColor(AndroidColor.argb(230, 241, 245, 249))
+                textSize = 11f
+                typeface = Typeface.MONOSPACE
+                layoutParams = LinearLayout.LayoutParams(dpToPx(88), LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+
+            val coreBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = 0
+                layoutParams = LinearLayout.LayoutParams(dpToPx(95), dpToPx(5))
+            }
+
+            coreTextViews.add(coreLabel)
+            coreProgressBars.add(coreBar)
+
+            coreRow.addView(coreLabel)
+            coreRow.addView(coreBar)
+            coresContainer.addView(coreRow)
+        }
+
+        // Draggable touch listener: allows the user to drag the floating window
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+
+        container.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = initialX + (event.rawX - initialTouchX).toInt()
+                    params.y = initialY + (event.rawY - initialTouchY).toInt()
+                    windowManager?.updateViewLayout(container, params)
+                    true
+                }
+                else -> false
+            }
+        }
 
         overlayView = container
         windowManager?.addView(container, params)
-        Toast.makeText(this, "Floating Overlay Created", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Floating CPU Panel (50% transparent) Active", Toast.LENGTH_SHORT).show()
+
+        // Background loop to sample per-core CPU usage and update UI every 1s
+        overlayJob = lifecycleScope.launch(Dispatchers.Default) {
+            while (isActive && overlayView != null) {
+                val snapshot = CpuMonitor.sampleCpuUsage()
+                withContext(Dispatchers.Main) {
+                    if (overlayView != null) {
+                        totalCpuText.text = "Total CPU: ${snapshot.totalUsagePercent}%"
+                        totalProgressBar.progress = snapshot.totalUsagePercent
+
+                        snapshot.cores.forEachIndexed { index, core ->
+                            if (index < coreTextViews.size) {
+                                coreTextViews[index].text = "Core $index: ${core.usagePercent}%"
+                                coreProgressBars[index].progress = core.usagePercent
+                            }
+                        }
+                    }
+                }
+                delay(1000L)
+            }
+        }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        val density = resources.displayMetrics.density
+        return (dp * density).toInt()
     }
 
     private fun hideFloatingOverlay() {
+        overlayJob?.cancel()
+        overlayJob = null
         if (overlayView != null) {
             windowManager?.removeView(overlayView)
             overlayView = null
-            Toast.makeText(this, "Floating Overlay Removed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Floating CPU Panel Dismissed", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -194,9 +370,27 @@ fun MainScreen(
     val isWakeLockAcquired by AppForegroundService.isWakeLockAcquired.collectAsState()
     val uptimeSeconds by AppForegroundService.uptimeSeconds.collectAsState()
 
+    val isWorkerActive by AppForegroundService.isWorkerActive.collectAsState()
+    val mathCalculationCount by AppForegroundService.mathCalculationCount.collectAsState()
+    val lastCalculationDetail by AppForegroundService.lastCalculationDetail.collectAsState()
+    val mathAccumulator by AppForegroundService.mathAccumulator.collectAsState()
+
     var isBatteryIgnored by remember { mutableStateOf(false) }
     var canDrawOverlays by remember { mutableStateOf(false) }
     var showXmlDetails by remember { mutableStateOf(false) }
+
+    // In-app CPU live snapshot
+    var currentCpuSnapshot by remember { mutableStateOf(CpuMonitor.sampleCpuUsage()) }
+
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val snapshot = withContext(Dispatchers.Default) {
+                CpuMonitor.sampleCpuUsage()
+            }
+            currentCpuSnapshot = snapshot
+            delay(1000L)
+        }
+    }
 
     fun refreshSystemStatus() {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -279,6 +473,23 @@ fun MainScreen(
                 }
             }
 
+            // Floating Overlay Controller with 50% transparency details
+            item {
+                CpuOverlayCard(
+                    canDrawOverlays = canDrawOverlays,
+                    cpuSnapshot = currentCpuSnapshot,
+                    onRequestPermission = {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                    },
+                    onShowOverlay = onShowOverlay,
+                    onHideOverlay = onHideOverlay
+                )
+            }
+
             item {
                 ForegroundServiceCard(
                     isRunning = isServiceRunning,
@@ -295,6 +506,16 @@ fun MainScreen(
                     onStop = {
                         AppForegroundService.stopService(context)
                     }
+                )
+            }
+
+            item {
+                LowPriorityMathWorkerCard(
+                    isWorkerActive = isWorkerActive,
+                    calculationCount = mathCalculationCount,
+                    calculationDetail = lastCalculationDetail,
+                    accumulator = mathAccumulator,
+                    isServiceRunning = isServiceRunning
                 )
             }
 
@@ -327,26 +548,325 @@ fun MainScreen(
             }
 
             item {
-                SystemOverlayCard(
-                    canDrawOverlays = canDrawOverlays,
-                    onRequestPermission = {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        context.startActivity(intent)
-                    },
-                    onShowOverlay = onShowOverlay,
-                    onHideOverlay = onHideOverlay
-                )
-            }
-
-            item {
                 RecentsAndTaskCard()
             }
 
             item {
                 Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun CpuOverlayCard(
+    canDrawOverlays: Boolean,
+    cpuSnapshot: CpuSnapshot,
+    onRequestPermission: () -> Unit,
+    onShowOverlay: () -> Unit,
+    onHideOverlay: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Floating CPU Panel (50% Alpha)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                StatusBadge(
+                    active = canDrawOverlays,
+                    activeText = "ENABLED",
+                    inactiveText = "NO PERMISSION"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Floating draggable panel with 50% opacity showing real-time CPU usage percentage for each individual processor core.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // In-app CPU live snapshot preview
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Processor Telemetry",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Total: ${cpuSnapshot.totalUsagePercent}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { cpuSnapshot.totalUsagePercent / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Grid-like view for cores
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        cpuSnapshot.cores.forEach { core ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Core ${core.coreIndex}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.width(60.dp)
+                                )
+                                LinearProgressIndicator(
+                                    progress = { core.usagePercent / 100f },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .padding(horizontal = 8.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                )
+                                Text(
+                                    text = "${core.usagePercent}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (core.usagePercent > 70) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            if (!canDrawOverlays) {
+                Button(
+                    onClick = onRequestPermission,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("request_overlay_button")
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Grant Overlay Permission")
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = onShowOverlay,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("show_overlay_button")
+                    ) {
+                        Icon(Icons.Default.Visibility, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open Floating Panel")
+                    }
+
+                    OutlinedButton(
+                        onClick = onHideOverlay,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("hide_overlay_button")
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Dismiss Panel")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LowPriorityMathWorkerCard(
+    isWorkerActive: Boolean,
+    calculationCount: Long,
+    calculationDetail: String,
+    accumulator: Double,
+    isServiceRunning: Boolean
+) {
+    val statusColor by animateColorAsState(
+        if (isWorkerActive) Color(0xFF10B981) else MaterialTheme.colorScheme.outline,
+        label = "worker_status"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Calculate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Low Priority Math Thread",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Surface(
+                    color = statusColor.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (isWorkerActive) "RUNNING" else "STOPPED",
+                        color = statusColor,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Runs inside AppForegroundService on a dedicated thread configured with Thread.MIN_PRIORITY (1/10) and Process.THREAD_PRIORITY_LOWEST.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "CALCULATIONS",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "%,d".format(calculationCount),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "ACCUMULATOR",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "%.2f".format(accumulator),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Surface(
+                color = Color(0xFF0F172A),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text(
+                        text = "LAST EVALUATION:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = calculationDetail,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
+            }
+
+            if (!isServiceRunning) {
+                Text(
+                    text = "Start the foreground service to launch this background thread.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }
@@ -749,98 +1269,6 @@ fun BatteryOptimizationCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(if (isIgnored) "Battery Exemption Active" else "Request Battery Exemption")
-            }
-        }
-    }
-}
-
-@Composable
-fun SystemOverlayCard(
-    canDrawOverlays: Boolean,
-    onRequestPermission: () -> Unit,
-    onShowOverlay: () -> Unit,
-    onHideOverlay: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Layers,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "SYSTEM_ALERT_WINDOW",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                StatusBadge(
-                    active = canDrawOverlays,
-                    activeText = "GRANTED",
-                    inactiveText = "DENIED"
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Allows the app to display floating windows and overlays above other applications.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-            if (!canDrawOverlays) {
-                Button(
-                    onClick = onRequestPermission,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("request_overlay_button")
-                ) {
-                    Icon(Icons.Default.Settings, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Grant Overlay Permission")
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = onShowOverlay,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("show_overlay_button")
-                    ) {
-                        Icon(Icons.Default.Visibility, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Show Overlay")
-                    }
-
-                    OutlinedButton(
-                        onClick = onHideOverlay,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("hide_overlay_button")
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Dismiss")
-                    }
-                }
             }
         }
     }

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.Process
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,11 +21,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AppForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
+    private var calculationThread: Thread? = null
+    private val isCalculationRunning = AtomicBoolean(false)
 
     override fun onCreate() {
         super.onCreate()
@@ -52,8 +56,9 @@ class AppForegroundService : Service() {
         _serviceStartTime.value = System.currentTimeMillis()
 
         acquireWakeLockInternal()
+        startMathCalculationThread()
 
-        val notification = buildNotification("Service Hub active in background")
+        val notification = buildNotification("Service Hub: Low priority math worker running")
         startForeground(NOTIFICATION_ID, notification)
 
         serviceScope.launch {
@@ -62,6 +67,63 @@ class AppForegroundService : Service() {
                 _uptimeSeconds.value += 1
             }
         }
+    }
+
+    private fun startMathCalculationThread() {
+        if (isCalculationRunning.compareAndSet(false, true)) {
+            _isWorkerActive.value = true
+            calculationThread = Thread({
+                // Set Linux process priority to lowest / background
+                try {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_LOWEST)
+                } catch (e: Exception) {
+                    try {
+                        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                    } catch (_: Exception) {}
+                }
+
+                var count = 0L
+                var accumulator = 0.0
+
+                while (isCalculationRunning.get() && !Thread.currentThread().isInterrupted) {
+                    count++
+
+                    // Simple mathematical calculations:
+                    // Progressions, modulo, square root and trigonometric functions
+                    val n = count % 1000
+                    val term = ((n * 7) + 13) % 256
+                    val sqrtVal = Math.sqrt(term.toDouble())
+                    val sinVal = Math.sin(Math.toRadians(n.toDouble()))
+                    val stepResult = (term * 1.5) + sqrtVal - sinVal
+                    accumulator = (accumulator + stepResult) % 1_000_000.0
+
+                    _mathCalculationCount.value = count
+                    _lastCalculationDetail.value = "n=$n : (%d * 1.5 + √%d - sin(%d°)) = %.2f".format(term, term, n, stepResult)
+                    _mathAccumulator.value = accumulator
+
+                    try {
+                        // Small sleep to maintain low CPU consumption and avoid battery drain
+                        Thread.sleep(100L)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
+                _isWorkerActive.value = false
+            }, "LowPriorityMathWorkerThread").apply {
+                // Set minimum JVM thread priority (1 out of 10)
+                priority = Thread.MIN_PRIORITY
+                isDaemon = true
+                start()
+            }
+        }
+    }
+
+    private fun stopMathCalculationThread() {
+        isCalculationRunning.set(false)
+        calculationThread?.interrupt()
+        calculationThread = null
+        _isWorkerActive.value = false
     }
 
     private fun acquireWakeLockInternal() {
@@ -105,10 +167,14 @@ class AppForegroundService : Service() {
     }
 
     private fun stopServiceInternal() {
+        stopMathCalculationThread()
         releaseWakeLockInternal()
         _isServiceRunning.value = false
         _uptimeSeconds.value = 0L
         _serviceStartTime.value = 0L
+        _mathCalculationCount.value = 0L
+        _lastCalculationDetail.value = "Worker idle"
+        _mathAccumulator.value = 0.0
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -121,6 +187,7 @@ class AppForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopMathCalculationThread()
         releaseWakeLockInternal()
         serviceScope.cancel()
         _isServiceRunning.value = false
@@ -180,6 +247,18 @@ class AppForegroundService : Service() {
 
         private val _serviceStartTime = MutableStateFlow(0L)
         val serviceStartTime: StateFlow<Long> = _serviceStartTime.asStateFlow()
+
+        private val _isWorkerActive = MutableStateFlow(false)
+        val isWorkerActive: StateFlow<Boolean> = _isWorkerActive.asStateFlow()
+
+        private val _mathCalculationCount = MutableStateFlow(0L)
+        val mathCalculationCount: StateFlow<Long> = _mathCalculationCount.asStateFlow()
+
+        private val _lastCalculationDetail = MutableStateFlow("Worker idle")
+        val lastCalculationDetail: StateFlow<String> = _lastCalculationDetail.asStateFlow()
+
+        private val _mathAccumulator = MutableStateFlow(0.0)
+        val mathAccumulator: StateFlow<Double> = _mathAccumulator.asStateFlow()
 
         fun startService(context: Context) {
             val intent = Intent(context, AppForegroundService::class.java).apply {

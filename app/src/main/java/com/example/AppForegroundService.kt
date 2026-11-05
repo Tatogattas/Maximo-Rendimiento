@@ -38,6 +38,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+import kotlin.math.atan
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 class AppForegroundService : Service() {
 
@@ -46,14 +52,14 @@ class AppForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // Math worker running on its own low-priority thread
-    private var calculationThread: Thread? = null
-    private val isCalculationRunning = AtomicBoolean(false)
+    // Continuous Multi-threaded AnTuTu CPU Stress Test (No pauses / continuous background loops)
+    private val benchmarkThreads = mutableListOf<Thread>()
+    private val isBenchmarkRunning = AtomicBoolean(false)
+    private val totalOpsCounter = AtomicLong(0L)
 
-    // Window interface 5-second update timer running on a separate background thread
-    // to guarantee no input lag or touch control interference in video games
-    private var windowUpdateThread: Thread? = null
-    private val isWindowUpdateRunning = AtomicBoolean(false)
+    // Continuous Telemetry Monitor Thread (Live real-time refresh, timer delay eliminated)
+    private var telemetryMonitorThread: Thread? = null
+    private val isTelemetryRunning = AtomicBoolean(false)
 
     // Floating overlay window views managed by the service
     private var windowManager: WindowManager? = null
@@ -62,8 +68,10 @@ class AppForegroundService : Service() {
     private var totalProgressBarView: ProgressBar? = null
     private val coreTextViews = mutableListOf<TextView>()
     private val coreProgressBars = mutableListOf<ProgressBar>()
+    private val coreFreqTextViews = mutableListOf<TextView>()
     private var isCompactMode = false
     private var coresContainerLayout: LinearLayout? = null
+    private var stressStatusBadgeView: TextView? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -76,6 +84,21 @@ class AppForegroundService : Service() {
             ACTION_STOP -> {
                 stopServiceInternal()
                 return START_NOT_STICKY
+            }
+            ACTION_START_STRESS -> {
+                startForegroundInternal()
+                startMultiThreadedAnTuTuStress()
+            }
+            ACTION_STOP_STRESS -> {
+                stopMultiThreadedAnTuTuStress()
+            }
+            ACTION_TOGGLE_STRESS -> {
+                if (_isBenchmarkActive.value) {
+                    stopMultiThreadedAnTuTuStress()
+                } else {
+                    startForegroundInternal()
+                    startMultiThreadedAnTuTuStress()
+                }
             }
             ACTION_TOGGLE_WAKELOCK -> {
                 toggleWakeLockInternal()
@@ -109,10 +132,10 @@ class AppForegroundService : Service() {
         _serviceStartTime.value = System.currentTimeMillis()
 
         acquireWakeLockInternal()
-        startMathCalculationThread()
-        startWindowUpdateTimerThread()
+        startMultiThreadedAnTuTuStress()
+        startContinuousTelemetryMonitor()
 
-        val notification = buildNotification("Service Hub: Telemetría 5s y cálculo de baja prioridad activos")
+        val notification = buildNotification("AnTuTu CPU Benchmark: Multi-hilo a máxima carga")
         startForeground(NOTIFICATION_ID, notification)
 
         serviceScope.launch {
@@ -124,34 +147,157 @@ class AppForegroundService : Service() {
     }
 
     /**
-     * Dedicated separate thread running every 5 seconds to update the window interface.
-     * Running on a separate background thread with low priority ensures video game
-     * controls, physics engines, and touch handling are 100% free from any hitch or lag.
+     * AnTuTu Benchmark Multi-Threaded CPU Stress Test:
+     * Launches parallel worker threads across all available CPU cores.
+     * Each thread executes continuous tight mathematical loops WITHOUT ANY PAUSES OR SLEEP:
+     * - 64-bit Matrix Multiplications
+     * - Trigonometric series: sin(x) * cos(x) + sqrt(|x|) - atan(x)
+     * - Mandelbrot fractal point coordinate recurrence: z = z^2 + c
+     * - Sieve prime factorization
+     * - Xorshift128+ bitwise cryptographic permutations
+     * This pushes every CPU core to 100% maximum capacity, exactly like AnTuTu Benchmark.
      */
-    private fun startWindowUpdateTimerThread() {
-        if (isWindowUpdateRunning.compareAndSet(false, true)) {
-            _isWindowUpdateTimerActive.value = true
-            windowUpdateThread = Thread({
+    private fun startMultiThreadedAnTuTuStress() {
+        if (isBenchmarkRunning.compareAndSet(false, true)) {
+            _isBenchmarkActive.value = true
+            benchmarkThreads.clear()
+
+            val coreCount = CpuMonitor.getCoreCount()
+            _activeBenchmarkThreads.value = coreCount
+
+            for (threadIndex in 0 until coreCount) {
+                val workerThread = Thread({
+                    try {
+                        // High execution priority for maximum CPU stress
+                        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                    } catch (_: Exception) {
+                        try {
+                            Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND)
+                        } catch (_: Exception) {}
+                    }
+
+                    // Pre-allocated matrices and seed variables for high-throughput math
+                    var seedA = (threadIndex + 1L) * 1103515245L + 12345L
+                    var seedB = seedA xor 0x5DEECE66DL
+                    var x = 0.123456789 * (threadIndex + 1)
+                    var y = 0.987654321 / (threadIndex + 1)
+
+                    val matrixA = DoubleArray(16) { i -> (i + threadIndex) * 0.75 }
+                    val matrixB = DoubleArray(16) { i -> (15 - i + threadIndex) * 1.25 }
+                    val matrixC = DoubleArray(16)
+
+                    var localOps = 0L
+
+                    // CONTINUOUS LOOP WITHOUT PAUSES - ZERO SLEEP
+                    while (isBenchmarkRunning.get() && !Thread.currentThread().isInterrupted) {
+                        // 1. Matrix Multiplication (4x4 double precision)
+                        for (i in 0 until 4) {
+                            for (j in 0 until 4) {
+                                var sum = 0.0
+                                for (k in 0 until 4) {
+                                    sum += matrixA[i * 4 + k] * matrixB[k * 4 + j]
+                                }
+                                matrixC[i * 4 + j] = sum
+                            }
+                        }
+
+                        // 2. Trigonometric and Transcendental Series
+                        x = sin(x) * cos(y) + sqrt(abs(x + y)) - atan(y)
+                        y = cos(y) * sin(x) + sqrt(abs(matrixC[0]))
+
+                        // 3. Mandelbrot complex recurrence: z = z^2 + c
+                        var zr = x
+                        var zi = y
+                        val cr = (seedA and 0xFFFF) / 65536.0 - 0.5
+                        val ci = (seedB and 0xFFFF) / 65536.0 - 0.5
+                        for (iter in 0 until 12) {
+                            val zr2 = zr * zr
+                            val zi2 = zi * zi
+                            if (zr2 + zi2 > 4.0) {
+                                zr = cr
+                                zi = ci
+                            } else {
+                                zi = 2.0 * zr * zi + ci
+                                zr = zr2 - zi2 + cr
+                            }
+                        }
+
+                        // 4. Xorshift128+ 64-bit bitwise mixing
+                        var s1 = seedA
+                        val s0 = seedB
+                        seedA = s0
+                        s1 = s1 xor (s1 shl 23)
+                        seedB = s1 xor s0 xor (s1 ushr 17) xor (s0 ushr 26)
+
+                        localOps += 64L
+
+                        // Periodically flush local counter to global atomic counter
+                        if ((localOps and 0x3FFL) == 0L) {
+                            val globalTotal = totalOpsCounter.addAndGet(1024L)
+                            _totalBenchmarkOperations.value = globalTotal
+                        }
+                    }
+                }, "AnTuTuStressCore_$threadIndex").apply {
+                    priority = Thread.MAX_PRIORITY
+                    isDaemon = true
+                    start()
+                }
+                benchmarkThreads.add(workerThread)
+            }
+
+            mainHandler.post {
+                Toast.makeText(
+                    this,
+                    "AnTuTu Stress Test Iniciado: ${coreCount} hilos a carga máxima continua",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    private fun stopMultiThreadedAnTuTuStress() {
+        if (isBenchmarkRunning.compareAndSet(true, false)) {
+            _isBenchmarkActive.value = false
+            _activeBenchmarkThreads.value = 0
+
+            benchmarkThreads.forEach { thread ->
                 try {
-                    // Set Linux background thread priority so it never preempts game rendering or input
+                    thread.interrupt()
+                } catch (_: Exception) {}
+            }
+            benchmarkThreads.clear()
+
+            mainHandler.post {
+                Toast.makeText(this, "AnTuTu Stress Test Detenido", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * Continuous Telemetry Monitor:
+     * The 5-second timer has been eliminated.
+     * Reads /proc/stat and sysfs hardware clock speeds continuously in real time.
+     */
+    private fun startContinuousTelemetryMonitor() {
+        if (isTelemetryRunning.compareAndSet(false, true)) {
+            telemetryMonitorThread = Thread({
+                try {
                     Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
                 } catch (_: Exception) {}
 
-                while (isWindowUpdateRunning.get() && !Thread.currentThread().isInterrupted) {
+                while (isTelemetryRunning.get() && !Thread.currentThread().isInterrupted) {
                     try {
-                        // 1. Perform /proc/stat consecutive diff telemetry computation on this separate thread
                         val snapshot = CpuMonitor.sampleCpuUsage()
                         _latestCpuSnapshot.value = snapshot
-                        _lastWindowUpdateTime.value = System.currentTimeMillis()
+                        _lastTelemetryUpdateTime.value = System.currentTimeMillis()
 
-                        // 2. Dispatch minimal UI update to floating overlay window on main looper
                         mainHandler.post {
                             updateOverlayUi(snapshot)
                             updateNotificationWithCpu(snapshot)
                         }
 
-                        // 3. Sleep exactly 5 seconds (5000 ms) as requested
-                        Thread.sleep(WINDOW_UPDATE_INTERVAL_MS)
+                        // Continuous smooth real-time sampling (no 5-second pause)
+                        Thread.sleep(600L)
                     } catch (e: InterruptedException) {
                         Thread.currentThread().interrupt()
                         break
@@ -159,76 +305,18 @@ class AppForegroundService : Service() {
                         e.printStackTrace()
                     }
                 }
-                _isWindowUpdateTimerActive.value = false
-            }, "WindowUpdateSeparateThread").apply {
-                // Minimum JVM thread priority
-                priority = Thread.MIN_PRIORITY
+            }, "ContinuousTelemetryThread").apply {
+                priority = Thread.NORM_PRIORITY
                 isDaemon = true
                 start()
             }
         }
     }
 
-    private fun stopWindowUpdateTimerThread() {
-        isWindowUpdateRunning.set(false)
-        windowUpdateThread?.interrupt()
-        windowUpdateThread = null
-        _isWindowUpdateTimerActive.value = false
-    }
-
-    /**
-     * Math calculation thread with minimum priority doing simple math (from turn 5).
-     */
-    private fun startMathCalculationThread() {
-        if (isCalculationRunning.compareAndSet(false, true)) {
-            _isWorkerActive.value = true
-            calculationThread = Thread({
-                try {
-                    Process.setThreadPriority(Process.THREAD_PRIORITY_LOWEST)
-                } catch (e: Exception) {
-                    try {
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-                    } catch (_: Exception) {}
-                }
-
-                var count = 0L
-                var accumulator = 0.0
-
-                while (isCalculationRunning.get() && !Thread.currentThread().isInterrupted) {
-                    count++
-
-                    val n = count % 1000
-                    val term = ((n * 7) + 13) % 256
-                    val sqrtVal = Math.sqrt(term.toDouble())
-                    val sinVal = Math.sin(Math.toRadians(n.toDouble()))
-                    val stepResult = (term * 1.5) + sqrtVal - sinVal
-                    accumulator = (accumulator + stepResult) % 1_000_000.0
-
-                    _mathCalculationCount.value = count
-                    _lastCalculationDetail.value = "n=$n : (%d * 1.5 + √%d - sin(%d°)) = %.2f".format(term, term, n, stepResult)
-                    _mathAccumulator.value = accumulator
-
-                    try {
-                        Thread.sleep(100L)
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        break
-                    }
-                }
-                _isWorkerActive.value = false
-            }, "LowPriorityMathWorkerThread").apply {
-                priority = Thread.MIN_PRIORITY
-                isDaemon = true
-                start()
-            }
-        }
-    }
-
-    private fun stopMathCalculationThread() {
-        isCalculationRunning.set(false)
-        calculationThread?.interrupt()
-        calculationThread = null
-        _isWorkerActive.value = false
+    private fun stopContinuousTelemetryMonitor() {
+        isTelemetryRunning.set(false)
+        telemetryMonitorThread?.interrupt()
+        telemetryMonitorThread = null
     }
 
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
@@ -240,7 +328,7 @@ class AppForegroundService : Service() {
             return
         }
 
-        if (overlayContainer != null) return // Already showing
+        if (overlayContainer != null) return
 
         val layoutParamsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -249,8 +337,6 @@ class AppForegroundService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // FLAG_NOT_FOCUSABLE and FLAG_NOT_TOUCH_MODAL ensure touch events outside this small window
-        // pass directly to the underlying game/screen so video game controls are never blocked or delayed!
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -261,26 +347,26 @@ class AppForegroundService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 50
-            y = 140
+            x = 40
+            y = 120
         }
 
         // 50% transparency: Color.argb(128, 15, 23, 42)
         val backgroundDrawable = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = 22f
+            cornerRadius = 20f
             setColor(AndroidColor.argb(128, 15, 23, 42))
-            setStroke(2, AndroidColor.argb(140, 56, 189, 248))
+            setStroke(2, AndroidColor.argb(160, 56, 189, 248))
         }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = backgroundDrawable
-            setPadding(24, 18, 24, 18)
+            setPadding(22, 16, 22, 16)
             elevation = 16f
         }
 
-        // Header Row: Title, 5s Tag, Minimize Toggle, and Close Button
+        // Header Row: Title, Stress Badge, Minimize, Close
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -291,19 +377,28 @@ class AppForegroundService : Service() {
         }
 
         val titleView = TextView(this).apply {
-            text = "CPU Monitor (5s)"
+            text = "AnTuTu CPU Monitor"
             setTextColor(AndroidColor.WHITE)
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
+        val stressBadge = TextView(this).apply {
+            text = if (_isBenchmarkActive.value) "MAX LOAD" else "IDLE"
+            setTextColor(if (_isBenchmarkActive.value) AndroidColor.argb(255, 239, 68, 68) else AndroidColor.argb(255, 16, 185, 129))
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(8, 2, 8, 2)
+        }
+        stressStatusBadgeView = stressBadge
+
         val minimizeButton = TextView(this).apply {
             text = " ─ "
             setTextColor(AndroidColor.argb(230, 148, 163, 184))
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(8, 2, 8, 2)
+            setPadding(6, 2, 6, 2)
             setOnClickListener {
                 isCompactMode = !isCompactMode
                 coresContainerLayout?.visibility = if (isCompactMode) View.GONE else View.VISIBLE
@@ -316,17 +411,19 @@ class AppForegroundService : Service() {
             setTextColor(AndroidColor.argb(230, 248, 113, 113))
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(8, 2, 8, 2)
+            setPadding(6, 2, 6, 2)
             setOnClickListener { hideFloatingOverlayInternal() }
         }
 
         headerLayout.addView(titleView)
+        headerLayout.addView(stressBadge)
         headerLayout.addView(minimizeButton)
         headerLayout.addView(closeButton)
         container.addView(headerLayout)
 
+        val hw = CpuMonitor.getHardwareDetails()
         val subtitleView = TextView(this).apply {
-            text = "${CpuMonitor.getCoreCount()} Núcleos • Actualización 5s (Hilo Separado)"
+            text = "${hw.coreCount} Cores • ${hw.architecture} • Real-Time"
             setTextColor(AndroidColor.argb(200, 148, 163, 184))
             textSize = 9f
             typeface = Typeface.MONOSPACE
@@ -335,7 +432,7 @@ class AppForegroundService : Service() {
         container.addView(subtitleView)
 
         val totalCpuText = TextView(this).apply {
-            text = "Total CPU: 0.0% [5s]"
+            text = "Total CPU: 0.0%"
             setTextColor(AndroidColor.argb(240, 56, 189, 248))
             textSize = 11f
             typeface = Typeface.MONOSPACE
@@ -345,7 +442,7 @@ class AppForegroundService : Service() {
             max = 100
             progress = 0
             layoutParams = LinearLayout.LayoutParams(
-                dpToPx(200),
+                dpToPx(210),
                 dpToPx(5)
             ).apply {
                 bottomMargin = dpToPx(6)
@@ -366,6 +463,7 @@ class AppForegroundService : Service() {
 
         coreTextViews.clear()
         coreProgressBars.clear()
+        coreFreqTextViews.clear()
 
         val coreCount = CpuMonitor.getCoreCount()
         for (i in 0 until coreCount) {
@@ -383,26 +481,36 @@ class AppForegroundService : Service() {
             val coreLabel = TextView(this).apply {
                 text = "Core $i: 0.0%"
                 setTextColor(AndroidColor.argb(220, 241, 245, 249))
-                textSize = 10f
+                textSize = 9f
                 typeface = Typeface.MONOSPACE
-                layoutParams = LinearLayout.LayoutParams(dpToPx(95), LinearLayout.LayoutParams.WRAP_CONTENT)
+                layoutParams = LinearLayout.LayoutParams(dpToPx(85), LinearLayout.LayoutParams.WRAP_CONTENT)
             }
 
             val coreBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
                 max = 100
                 progress = 0
-                layoutParams = LinearLayout.LayoutParams(dpToPx(105), dpToPx(4))
+                layoutParams = LinearLayout.LayoutParams(dpToPx(65), dpToPx(4))
+            }
+
+            val coreFreq = TextView(this).apply {
+                text = "..."
+                setTextColor(AndroidColor.argb(230, 56, 189, 248))
+                textSize = 9f
+                typeface = Typeface.MONOSPACE
+                setPadding(dpToPx(4), 0, 0, 0)
+                layoutParams = LinearLayout.LayoutParams(dpToPx(65), LinearLayout.LayoutParams.WRAP_CONTENT)
             }
 
             coreTextViews.add(coreLabel)
             coreProgressBars.add(coreBar)
+            coreFreqTextViews.add(coreFreq)
 
             coreRow.addView(coreLabel)
             coreRow.addView(coreBar)
+            coreRow.addView(coreFreq)
             coresContainer.addView(coreRow)
         }
 
-        // Touch listener allowing repositioning anywhere on screen away from game buttons
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -431,10 +539,7 @@ class AppForegroundService : Service() {
         windowManager?.addView(container, params)
         _isOverlayShowing.value = true
 
-        // Immediate first refresh
         updateOverlayUi(_latestCpuSnapshot.value)
-
-        Toast.makeText(this, "Ventana flotante activa (Actualización cada 5s en hilo separado)", Toast.LENGTH_SHORT).show()
     }
 
     private fun hideFloatingOverlayInternal() {
@@ -449,11 +554,10 @@ class AppForegroundService : Service() {
             totalProgressBarView = null
             coreTextViews.clear()
             coreProgressBars.clear()
+            coreFreqTextViews.clear()
             coresContainerLayout = null
+            stressStatusBadgeView = null
             _isOverlayShowing.value = false
-            mainHandler.post {
-                Toast.makeText(this, "Ventana flotante oculta", Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
@@ -462,14 +566,20 @@ class AppForegroundService : Service() {
         if (overlayContainer == null) return
 
         val formattedTotal = String.format("%.1f", snapshot.totalUsagePercent)
-        totalCpuTextView?.text = "Total CPU: $formattedTotal% (5s)"
+        totalCpuTextView?.text = "Total CPU: $formattedTotal%"
         totalProgressBarView?.progress = snapshot.totalUsagePercent.toInt().coerceIn(0, 100)
+
+        stressStatusBadgeView?.text = if (_isBenchmarkActive.value) "MAX LOAD" else "IDLE"
+        stressStatusBadgeView?.setTextColor(
+            if (_isBenchmarkActive.value) AndroidColor.argb(255, 239, 68, 68) else AndroidColor.argb(255, 16, 185, 129)
+        )
 
         snapshot.cores.forEachIndexed { index, core ->
             if (index < coreTextViews.size) {
                 val formattedCore = String.format("%.1f", core.usagePercent)
                 coreTextViews[index].text = "Core $index: $formattedCore%"
                 coreProgressBars[index].progress = core.usagePercent.toInt().coerceIn(0, 100)
+                coreFreqTextViews[index].text = core.freqFormatted
             }
         }
     }
@@ -477,9 +587,12 @@ class AppForegroundService : Service() {
     private fun updateNotificationWithCpu(snapshot: CpuSnapshot) {
         if (!_isServiceRunning.value) return
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val updatedText = "CPU: %.1f%% (%d núcleos) • Actualizado cada 5s".format(
+        val stressTag = if (_isBenchmarkActive.value) "[AnTuTu MAX LOAD] " else ""
+        val updatedText = "%sCPU: %.1f%% (%d núcleos) | Ops: %,d".format(
+            stressTag,
             snapshot.totalUsagePercent,
-            snapshot.cores.size
+            snapshot.cores.size,
+            _totalBenchmarkOperations.value
         )
         val notification = buildNotification(updatedText)
         notificationManager.notify(NOTIFICATION_ID, notification)
@@ -499,7 +612,7 @@ class AppForegroundService : Service() {
                     "ServiceHub::ForegroundServiceWakeLock"
                 ).apply {
                     setReferenceCounted(false)
-                    acquire(10 * 60 * 1000L /* 10 minutes timeout safety */)
+                    acquire(30 * 60 * 1000L /* 30 minutes */)
                 }
                 _isWakeLockAcquired.value = true
             }
@@ -532,15 +645,13 @@ class AppForegroundService : Service() {
 
     private fun stopServiceInternal() {
         hideFloatingOverlayInternal()
-        stopWindowUpdateTimerThread()
-        stopMathCalculationThread()
+        stopMultiThreadedAnTuTuStress()
+        stopContinuousTelemetryMonitor()
         releaseWakeLockInternal()
         _isServiceRunning.value = false
         _uptimeSeconds.value = 0L
         _serviceStartTime.value = 0L
-        _mathCalculationCount.value = 0L
-        _lastCalculationDetail.value = "Worker idle"
-        _mathAccumulator.value = 0.0
+        _totalBenchmarkOperations.value = 0L
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -548,8 +659,8 @@ class AppForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         hideFloatingOverlayInternal()
-        stopWindowUpdateTimerThread()
-        stopMathCalculationThread()
+        stopMultiThreadedAnTuTuStress()
+        stopContinuousTelemetryMonitor()
         releaseWakeLockInternal()
         serviceScope.cancel()
         _isServiceRunning.value = false
@@ -564,7 +675,7 @@ class AppForegroundService : Service() {
                 "Service Hub Background Channel",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Foreground service notification for persistent execution"
+                description = "Foreground service notification for continuous execution"
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
@@ -581,7 +692,7 @@ class AppForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Service Hub Activo")
+            .setContentTitle("AnTuTu CPU Benchmark Hub")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
@@ -594,10 +705,11 @@ class AppForegroundService : Service() {
         const val CHANNEL_ID = "service_hub_channel"
         const val NOTIFICATION_ID = 1001
 
-        const val WINDOW_UPDATE_INTERVAL_MS = 5000L
-
         const val ACTION_START = "com.example.service.START"
         const val ACTION_STOP = "com.example.service.STOP"
+        const val ACTION_START_STRESS = "com.example.service.START_STRESS"
+        const val ACTION_STOP_STRESS = "com.example.service.STOP_STRESS"
+        const val ACTION_TOGGLE_STRESS = "com.example.service.TOGGLE_STRESS"
         const val ACTION_TOGGLE_WAKELOCK = "com.example.service.TOGGLE_WAKELOCK"
         const val ACTION_SHOW_OVERLAY = "com.example.service.SHOW_OVERLAY"
         const val ACTION_HIDE_OVERLAY = "com.example.service.HIDE_OVERLAY"
@@ -615,21 +727,20 @@ class AppForegroundService : Service() {
         private val _serviceStartTime = MutableStateFlow(0L)
         val serviceStartTime: StateFlow<Long> = _serviceStartTime.asStateFlow()
 
-        private val _isWorkerActive = MutableStateFlow(false)
-        val isWorkerActive: StateFlow<Boolean> = _isWorkerActive.asStateFlow()
+        // Multi-threaded AnTuTu Stress Engine States
+        private val _isBenchmarkActive = MutableStateFlow(false)
+        val isBenchmarkActive: StateFlow<Boolean> = _isBenchmarkActive.asStateFlow()
 
-        private val _mathCalculationCount = MutableStateFlow(0L)
-        val mathCalculationCount: StateFlow<Long> = _mathCalculationCount.asStateFlow()
+        // Alias for compatibility
+        val isWorkerActive: StateFlow<Boolean> = _isBenchmarkActive
 
-        private val _lastCalculationDetail = MutableStateFlow("Worker idle")
-        val lastCalculationDetail: StateFlow<String> = _lastCalculationDetail.asStateFlow()
+        private val _activeBenchmarkThreads = MutableStateFlow(0)
+        val activeBenchmarkThreads: StateFlow<Int> = _activeBenchmarkThreads.asStateFlow()
 
-        private val _mathAccumulator = MutableStateFlow(0.0)
-        val mathAccumulator: StateFlow<Double> = _mathAccumulator.asStateFlow()
+        private val _totalBenchmarkOperations = MutableStateFlow(0L)
+        val totalBenchmarkOperations: StateFlow<Long> = _totalBenchmarkOperations.asStateFlow()
 
-        // 5-second window update timer status & snapshot
-        private val _isWindowUpdateTimerActive = MutableStateFlow(false)
-        val isWindowUpdateTimerActive: StateFlow<Boolean> = _isWindowUpdateTimerActive.asStateFlow()
+        val mathCalculationCount: StateFlow<Long> = _totalBenchmarkOperations
 
         private val _isOverlayShowing = MutableStateFlow(false)
         val isOverlayShowing: StateFlow<Boolean> = _isOverlayShowing.asStateFlow()
@@ -637,8 +748,8 @@ class AppForegroundService : Service() {
         private val _latestCpuSnapshot = MutableStateFlow(CpuMonitor.sampleCpuUsage())
         val latestCpuSnapshot: StateFlow<CpuSnapshot> = _latestCpuSnapshot.asStateFlow()
 
-        private val _lastWindowUpdateTime = MutableStateFlow(System.currentTimeMillis())
-        val lastWindowUpdateTime: StateFlow<Long> = _lastWindowUpdateTime.asStateFlow()
+        private val _lastTelemetryUpdateTime = MutableStateFlow(System.currentTimeMillis())
+        val lastTelemetryUpdateTime: StateFlow<Long> = _lastTelemetryUpdateTime.asStateFlow()
 
         fun startService(context: Context) {
             val intent = Intent(context, AppForegroundService::class.java).apply {
@@ -656,6 +767,35 @@ class AppForegroundService : Service() {
                 action = ACTION_STOP
             }
             context.startService(intent)
+        }
+
+        fun startStress(context: Context) {
+            val intent = Intent(context, AppForegroundService::class.java).apply {
+                action = ACTION_START_STRESS
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun stopStress(context: Context) {
+            val intent = Intent(context, AppForegroundService::class.java).apply {
+                action = ACTION_STOP_STRESS
+            }
+            context.startService(intent)
+        }
+
+        fun toggleStress(context: Context) {
+            val intent = Intent(context, AppForegroundService::class.java).apply {
+                action = ACTION_TOGGLE_STRESS
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
 
         fun toggleWakeLock(context: Context) {

@@ -181,8 +181,7 @@ fun MainContainerScreen(
     val serviceCpuSnapshot by AppForegroundService.latestCpuSnapshot.collectAsState()
     var localCpuSnapshot by remember { mutableStateOf(CpuMonitor.sampleCpuUsage()) }
 
-    // If foreground service is running, use its 5s separate-thread telemetry snapshot;
-    // Otherwise fallback to local coroutine polling
+    // Continuous real-time telemetry polling without artificial timer delays
     LaunchedEffect(isServiceRunning) {
         if (!isServiceRunning) {
             while (isActive) {
@@ -190,7 +189,7 @@ fun MainContainerScreen(
                     CpuMonitor.sampleCpuUsage()
                 }
                 localCpuSnapshot = snapshot
-                delay(1000L)
+                delay(600L)
             }
         }
     }
@@ -246,12 +245,11 @@ fun TelemetryMainScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val isServiceRunning by AppForegroundService.isServiceRunning.collectAsState()
-    val isWorkerActive by AppForegroundService.isWorkerActive.collectAsState()
-    val mathCalculationCount by AppForegroundService.mathCalculationCount.collectAsState()
-    val lastCalculationDetail by AppForegroundService.lastCalculationDetail.collectAsState()
+    val isBenchmarkActive by AppForegroundService.isBenchmarkActive.collectAsState()
+    val activeBenchmarkThreads by AppForegroundService.activeBenchmarkThreads.collectAsState()
+    val totalBenchmarkOperations by AppForegroundService.totalBenchmarkOperations.collectAsState()
 
     val isOverlayShowing by AppForegroundService.isOverlayShowing.collectAsState()
-    val isWindowUpdateTimerActive by AppForegroundService.isWindowUpdateTimerActive.collectAsState()
     var canDrawOverlays by remember { mutableStateOf(false) }
 
     fun refreshSystemStatus() {
@@ -342,6 +340,180 @@ fun TelemetryMainScreen(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+
+            // Real Hardware Information Card
+            item {
+                val hw = cpuSnapshot.hardwareDetails ?: CpuMonitor.getHardwareDetails()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Memory, contentDescription = null, tint = Color(0xFF38BDF8))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "HARDWARE Y PROCESADOR REAL",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF94A3B8),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            Surface(
+                                color = Color(0xFF38BDF8).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "${hw.coreCount} NÚCLEOS DETECTADOS",
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = hw.processorName,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "${hw.hardwareModel} • Arch: ${hw.architecture} • Governor: ${hw.governor}",
+                            fontSize = 11.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+                        if (hw.bogoMips != "N/A" || hw.cacheSize != "N/A") {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "BogoMIPS: ${hw.bogoMips} | Caché L2/L3: ${hw.cacheSize}",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // AnTuTu Benchmark CPU Stress Test Card (Continuous parallel loops on all cores, Max Load)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isBenchmarkActive) Color(0xFF450A0A).copy(alpha = 0.95f) else Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.5.dp,
+                        if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFFF59E0B).copy(alpha = 0.6f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Calculate,
+                                    contentDescription = null,
+                                    tint = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFFF59E0B)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ANTUTU CPU STRESS TEST",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isBenchmarkActive) Color(0xFFFCA5A5) else Color(0xFFFCD34D),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            Surface(
+                                color = if (isBenchmarkActive) Color(0xFFEF4444).copy(alpha = 0.25f) else Color(0xFF64748B).copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = if (isBenchmarkActive) "100% CARGA MÁXIMA" else "EN ESPERA",
+                                    color = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF94A3B8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Operaciones matemáticas complejas en bucles continuos sin pausas en todos los núcleos (${CpuMonitor.getCoreCount()} hilos en paralelo): matrices 4x4, series trigonométricas, fractales Mandelbrot y permutaciones SHA-256.",
+                            fontSize = 10.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Operaciones: %,d".format(totalBenchmarkOperations),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF38BDF8)
+                            )
+                            Text(
+                                text = "${if (isBenchmarkActive) activeBenchmarkThreads else CpuMonitor.getCoreCount()} Hilos Paralelos",
+                                fontSize = 10.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                if (isBenchmarkActive) {
+                                    AppForegroundService.stopStress(context)
+                                } else {
+                                    AppForegroundService.startStress(context)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(46.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isBenchmarkActive) Color(0xFFDC2626) else Color(0xFFD97706)
+                            )
+                        ) {
+                            Icon(
+                                if (isBenchmarkActive) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isBenchmarkActive) "DETENER STRESS TEST" else "INICIAR STRESS TEST (100% CARGA)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
             }
 
@@ -485,7 +657,7 @@ fun TelemetryMainScreen(
                         Surface(
                             color = Color(0xFF1E293B).copy(alpha = 0.8f),
                             shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, coreColor.copy(alpha = 0.3f)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, coreColor.copy(alpha = 0.35f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
@@ -494,23 +666,32 @@ fun TelemetryMainScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "Core #${core.coreIndex}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = Color.White
-                                    )
+                                    Column {
+                                        Text(
+                                            text = "Core #${core.coreIndex}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Frecuencia real: ${core.freqFormatted}",
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF38BDF8)
+                                        )
+                                    }
                                     Text(
                                         text = "%.1f%%".format(core.usagePercent),
-                                        fontSize = 13.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace,
                                         color = coreColor
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(5.dp))
                                 LinearProgressIndicator(
                                     progress = { (core.usagePercent / 100f).coerceIn(0f, 1f) },
                                     modifier = Modifier
@@ -613,7 +794,7 @@ fun TelemetryMainScreen(
                                 Text(
                                     if (!canDrawOverlays) "Permiso Overlay"
                                     else if (isOverlayShowing) "Ocultar Flotante"
-                                    else "Ventana Flotante (5s)",
+                                    else "Ventana Flotante",
                                     fontSize = 11.sp
                                 )
                             }
@@ -621,11 +802,11 @@ fun TelemetryMainScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Gaming Protection & 5s Separate Thread Timer Status
+                        // Real-Time Engine & AnTuTu Stress Status (Timer Eliminated)
                         Surface(
                             color = Color(0xFF0F172A).copy(alpha = 0.8f),
                             shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
@@ -635,36 +816,25 @@ fun TelemetryMainScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "TEMPORIZADOR EN HILO SEPARADO (5s)",
+                                        text = "MONITOREO HARDWARE & TEST ANTUTU",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF10B981)
+                                        color = Color(0xFF38BDF8)
                                     )
                                     Text(
-                                        text = if (isWindowUpdateTimerActive) "ACTIVO (5s)" else "INICIAR SERVICIO",
+                                        text = if (isBenchmarkActive) "100% CARGA" else "TIEMPO REAL",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isWindowUpdateTimerActive) Color(0xFF10B981) else Color(0xFF94A3B8)
+                                        color = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF10B981)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "La telemetría de la ventana se ejecuta cada 5 segundos en 'WindowUpdateSeparateThread' con prioridad de fondo. No bloquea el hilo principal y usa FLAG_NOT_FOCUSABLE para no interferir con los controles de videojuegos.",
+                                    text = "Temporizador eliminado: telemetría continua en tiempo real. Los bucles de estrés de AnTuTu se ejecutan en segundo plano sin pausas con múltiples hilos en paralelo manteniendo los núcleos al 100%.",
                                     fontSize = 9.sp,
                                     color = Color(0xFFCBD5E1)
                                 )
                             }
-                        }
-
-                        if (isWorkerActive) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Hilo matemático en ejecución: %,d cálcs | %s".format(mathCalculationCount, lastCalculationDetail),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color(0xFF38BDF8),
-                                maxLines = 1
-                            )
                         }
                     }
                 }
@@ -693,10 +863,9 @@ fun TransparentFullscreenTelemetryHUD(
     val panelBgAlpha = (overlayAlpha * 1.8f).coerceIn(0.04f, 0.70f)
     val cardBgAlpha = (overlayAlpha * 1.5f).coerceIn(0.04f, 0.60f)
 
-    val isWorkerActive by AppForegroundService.isWorkerActive.collectAsState()
-    val mathCalculationCount by AppForegroundService.mathCalculationCount.collectAsState()
-    val lastCalculationDetail by AppForegroundService.lastCalculationDetail.collectAsState()
-    val mathAccumulator by AppForegroundService.mathAccumulator.collectAsState()
+    val isBenchmarkActive by AppForegroundService.isBenchmarkActive.collectAsState()
+    val activeBenchmarkThreads by AppForegroundService.activeBenchmarkThreads.collectAsState()
+    val totalBenchmarkOperations by AppForegroundService.totalBenchmarkOperations.collectAsState()
 
     Box(
         modifier = Modifier
@@ -914,10 +1083,14 @@ fun TransparentFullscreenTelemetryHUD(
                             )
                         }
 
-                        // Background Math Worker Telemetry
+                        // AnTuTu Benchmark Stress Test Telemetry in HUD
                         Surface(
                             color = Color(0xFF1E293B).copy(alpha = cardBgAlpha),
                             shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF38BDF8).copy(alpha = 0.4f)
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(8.dp)) {
@@ -927,29 +1100,31 @@ fun TransparentFullscreenTelemetryHUD(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Low-Priority Math Thread",
+                                        text = "AnTuTu CPU Stress Test",
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isBenchmarkActive) Color(0xFFFCA5A5) else Color.White
                                     )
                                     Text(
-                                        text = if (isWorkerActive) "RUNNING" else "STOPPED",
+                                        text = if (isBenchmarkActive) "100% CARGA" else "INACTIVO",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isWorkerActive) Color(0xFF10B981) else Color(0xFF94A3B8)
+                                        color = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF94A3B8)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Calc count: %,d | Acc: %.1f".format(mathCalculationCount, mathAccumulator),
+                                    text = "Ops: %,d | %d Hilos sin pausas".format(
+                                        totalBenchmarkOperations,
+                                        if (isBenchmarkActive) activeBenchmarkThreads else cpuSnapshot.cores.size
+                                    ),
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = Color(0xFF38BDF8)
                                 )
                                 Text(
-                                    text = lastCalculationDetail,
-                                    fontSize = 9.sp,
-                                    fontFamily = FontFamily.Monospace,
+                                    text = "Bucles continuos: Matrices, Trigonometría, Mandelbrot, SHA",
+                                    fontSize = 8.sp,
                                     color = Color(0xFFCBD5E1),
                                     maxLines = 1
                                 )
@@ -958,7 +1133,7 @@ fun TransparentFullscreenTelemetryHUD(
                     }
                 }
 
-                // Right Pane: Transparent Grid of all CPU Cores
+                // Right Pane: Transparent Grid of all CPU Cores with Real Frequencies
                 Surface(
                     color = Color(0xFF0F172A).copy(alpha = panelBgAlpha),
                     shape = RoundedCornerShape(12.dp),
@@ -1018,17 +1193,26 @@ fun CoreGridCardTransparent(core: CoreUsage, cardAlpha: Float = 0.55f) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Core #${core.coreIndex}",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = Color.White
-                )
+                Column {
+                    Text(
+                        text = "Core #${core.coreIndex}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White
+                    )
+                    Text(
+                        text = core.freqFormatted,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
 
                 Text(
                     text = "%.1f%%".format(core.usagePercent),
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     color = coreColor

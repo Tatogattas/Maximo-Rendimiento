@@ -1,27 +1,16 @@
 pluginManagement {
-  repositories {
-    google {
-      content {
-        includeGroupByRegex("com\\.android.*")
-        includeGroupByRegex("com\\.google.*")
-        includeGroupByRegex("androidx.*")
-      }
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
     }
-    mavenCentral()
-    gradlePluginPortal()
-  }
 }
-
-plugins { id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0" }
-
-dependencyResolutionManagement {
-  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-  repositories {
-    google()
-    mavenCentral()
-  }
+plugins {
+    id("com.highcapable.sweetdependency") version "__SWEET_DEPENDENCY_VERSION__"
+    id("com.highcapable.sweetproperty") version "__SWEET_PROPERTY_VERSION__"
 }
-
-rootProject.name = "Service Hub"
-
+sweetProperty {
+    rootProject { all { isEnable = false } }
+}
+rootProject.name = "__PROJECT_NAME__"
 include(":app")

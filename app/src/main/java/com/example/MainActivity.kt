@@ -128,6 +128,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Initialize Shizuku binder listener and user service lifecycle
+        ShizukuHelper.init(this)
+
         // Configure window for true transparency so background is visible
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSLUCENT)
@@ -166,6 +169,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ShizukuHelper.destroy()
     }
 }
 

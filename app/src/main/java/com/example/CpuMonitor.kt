@@ -194,11 +194,23 @@ object CpuMonitor {
             arch = System.getProperty("os.arch") ?: "ARM"
         }
 
+        // Detect Qualcomm Snapdragon hardware specifics
+        if (hwModel.contains("Qualcomm", ignoreCase = true) || procName.contains("Qualcomm", ignoreCase = true) || hwModel.contains("SM", ignoreCase = true) || hwModel.contains("Snapdragon", ignoreCase = true)) {
+            if (!procName.contains("Snapdragon", ignoreCase = true)) {
+                procName = "Qualcomm Snapdragon ($procName)"
+            }
+        }
+
         var governor = "ondemand"
         try {
             val govFile = File("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
             if (govFile.exists() && govFile.canRead()) {
                 governor = govFile.readText().trim()
+            } else {
+                val policyGov = File("/sys/devices/system/cpu/cpufreq/policy0/scaling_governor")
+                if (policyGov.exists() && policyGov.canRead()) {
+                    governor = policyGov.readText().trim()
+                }
             }
         } catch (_: Exception) {}
 
@@ -215,14 +227,16 @@ object CpuMonitor {
 
     /**
      * Reads the REAL clock frequency (speed) of a given CPU core in kHz.
-     * Sources checked in order:
-     * 1. /sys/devices/system/cpu/cpuX/cpufreq/scaling_cur_freq (live current clock)
-     * 2. /sys/devices/system/cpu/cpuX/cpufreq/cpuinfo_cur_freq
-     * 3. /sys/devices/system/cpu/cpuX/cpufreq/scaling_max_freq
-     * 4. /proc/cpuinfo "cpu MHz"
+     * With full Qualcomm Snapdragon cluster/policy path compatibility:
+     * 1. /sys/devices/system/cpu/cpuX/cpufreq/scaling_cur_freq
+     * 2. /sys/devices/system/cpu/cpufreq/policyX/scaling_cur_freq (Snapdragon direct policy)
+     * 3. /sys/devices/system/cpu/cpufreq/policy[N]/affected_cpus cluster mapping (Snapdragon big.LITTLE)
+     * 4. /sys/devices/system/cpu/cpuX/cpufreq/cpuinfo_cur_freq
+     * 5. /sys/devices/system/cpu/cpuX/cpufreq/scaling_max_freq
+     * 6. /proc/cpuinfo "cpu MHz"
      */
     fun readCoreFrequencyKHz(coreIndex: Int): Long {
-        // 1. scaling_cur_freq
+        // 1. Standard per-core scaling_cur_freq
         val curFreqFile = File("/sys/devices/system/cpu/cpu$coreIndex/cpufreq/scaling_cur_freq")
         if (curFreqFile.exists() && curFreqFile.canRead()) {
             try {
@@ -231,7 +245,20 @@ object CpuMonitor {
             } catch (_: Exception) {}
         }
 
-        // 2. cpuinfo_cur_freq
+        // 2. Qualcomm Snapdragon direct policy index: policyX/scaling_cur_freq
+        val snapdragonPolicyFile = File("/sys/devices/system/cpu/cpufreq/policy$coreIndex/scaling_cur_freq")
+        if (snapdragonPolicyFile.exists() && snapdragonPolicyFile.canRead()) {
+            try {
+                val freq = snapdragonPolicyFile.readText().trim().toLongOrNull()
+                if (freq != null && freq > 0L) return freq
+            } catch (_: Exception) {}
+        }
+
+        // 3. Qualcomm Snapdragon cluster policy resolution via affected_cpus / related_cpus
+        val clusterFreq = readSnapdragonClusterPolicyFreq(coreIndex)
+        if (clusterFreq > 0L) return clusterFreq
+
+        // 4. cpuinfo_cur_freq
         val cpuinfoCurFile = File("/sys/devices/system/cpu/cpu$coreIndex/cpufreq/cpuinfo_cur_freq")
         if (cpuinfoCurFile.exists() && cpuinfoCurFile.canRead()) {
             try {
@@ -240,7 +267,7 @@ object CpuMonitor {
             } catch (_: Exception) {}
         }
 
-        // 3. scaling_max_freq
+        // 5. scaling_max_freq
         val maxFreqFile = File("/sys/devices/system/cpu/cpu$coreIndex/cpufreq/scaling_max_freq")
         if (maxFreqFile.exists() && maxFreqFile.canRead()) {
             try {
@@ -249,12 +276,43 @@ object CpuMonitor {
             } catch (_: Exception) {}
         }
 
-        // 4. Parse from /proc/cpuinfo for this specific core or general cpu MHz
+        // 6. Parse from /proc/cpuinfo for this specific core or general cpu MHz
         val procMhz = readCoreMhzFromCpuInfo(coreIndex)
         if (procMhz > 0.0) {
             return (procMhz * 1000.0).toLong()
         }
 
+        return 0L
+    }
+
+    /**
+     * Resolves Snapdragon cluster policies (e.g. Kryo / Cortex-X Prime, Gold, Silver clusters)
+     * by finding which cpufreq policy manages the target coreIndex.
+     */
+    private fun readSnapdragonClusterPolicyFreq(coreIndex: Int): Long {
+        try {
+            val cpufreqDir = File("/sys/devices/system/cpu/cpufreq")
+            if (cpufreqDir.exists() && cpufreqDir.isDirectory) {
+                val policyDirs = cpufreqDir.listFiles { f -> f.isDirectory && f.name.startsWith("policy") }
+                if (policyDirs != null) {
+                    for (dir in policyDirs) {
+                        val affectedFile = File(dir, "affected_cpus").takeIf { it.exists() && it.canRead() }
+                            ?: File(dir, "related_cpus").takeIf { it.exists() && it.canRead() }
+
+                        if (affectedFile != null) {
+                            val cpus = affectedFile.readText().trim().split("\\s+".toRegex())
+                            if (cpus.contains(coreIndex.toString())) {
+                                val freqFile = File(dir, "scaling_cur_freq")
+                                if (freqFile.exists() && freqFile.canRead()) {
+                                    val freq = freqFile.readText().trim().toLongOrNull()
+                                    if (freq != null && freq > 0L) return freq
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
         return 0L
     }
 

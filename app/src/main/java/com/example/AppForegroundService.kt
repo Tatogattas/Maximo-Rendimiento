@@ -672,10 +672,14 @@ class AppForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Service Hub Background Channel",
-                NotificationManager.IMPORTANCE_LOW
+                "com.antutu.ABenchMark Priority Service",
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Foreground service notification for continuous execution"
+                description = "com.antutu.ABenchMark High-Priority Foreground Service"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                enableVibration(false)
+                setSound(null, null)
+                setShowBadge(true)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
@@ -692,12 +696,17 @@ class AppForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AnTuTu CPU Benchmark Hub")
+            .setContentTitle("com.antutu.ABenchMark")
+            .setSubText("com.antutu.ABenchMark")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 

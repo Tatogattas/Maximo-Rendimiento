@@ -72,8 +72,8 @@ object ShizukuHelper {
                 _userService.value = userServ
                 _isServiceConnected.value = true
                 try {
-                    userServ.startPersistentTask()
-                    _serviceStatusMessage.value = userServ.taskStatus
+                    userServ.startBenchmarkLoop()
+                    _serviceStatusMessage.value = "Servicio Shizuku Conectado (UID 2000)"
                 } catch (e: Exception) {
                     _serviceStatusMessage.value = "Conectado (UID 2000)"
                 }
@@ -150,7 +150,7 @@ object ShizukuHelper {
      * Binds the UserService in an independent process with UID 2000 (shell).
      * Uses daemon(true) and processNameSuffix("shizuku_service") as requested.
      */
-    fun iniciarServicio(context: Context) {
+    fun bindService(context: Context) {
         if (!checkStatus()) {
             if (context is Activity && _isShizukuAvailable.value && !_isPermissionGranted.value) {
                 requestPermission(context)
@@ -181,10 +181,13 @@ object ShizukuHelper {
         }
     }
 
-    fun detenerServicio() {
+    // Alias for Spanish convention
+    fun iniciarServicio(context: Context) = bindService(context)
+
+    fun unbindService() {
         val args = userServiceArgs ?: return
         try {
-            _userService.value?.stopPersistentTask()
+            _userService.value?.stopBenchmarkLoop()
             Shizuku.unbindUserService(args, serviceConnection, true)
             _isServiceConnected.value = false
             _userService.value = null
@@ -195,7 +198,18 @@ object ShizukuHelper {
         }
     }
 
-    fun ejecutarComando(command: String): String {
+    // Alias for Spanish convention
+    fun detenerServicio() = unbindService()
+
+    fun isRunning(): Boolean {
+        return try {
+            _userService.value?.isRunning ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun executeCommand(command: String): String {
         val service = _userService.value
         return if (service != null && _isServiceConnected.value) {
             try {
@@ -207,4 +221,6 @@ object ShizukuHelper {
             "UserService no está conectado con Shizuku"
         }
     }
+
+    fun ejecutarComando(command: String): String = executeCommand(command)
 }

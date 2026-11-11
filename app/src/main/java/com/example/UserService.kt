@@ -1,81 +1,105 @@
 package com.example
 
-import android.os.Handler
-import android.os.HandlerThread
 import android.os.Process
 import android.util.Log
 import androidx.annotation.Keep
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+import kotlin.math.atan
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.system.exitProcess
 
 /**
  * Shizuku UserService implementation.
  * Runs in an independent process with system shell privileges (UID 2000).
- * Kept alive continuously with a background worker thread even when Activity closes.
+ * Kept alive continuously with coroutines running mathematical loops and shell operations
+ * even when the main Activity is closed.
  */
 @Keep
 class UserService : IUserService.Stub() {
 
-    private val isRunning = AtomicBoolean(false)
-    private val executionCount = AtomicLong(0L)
-    private var workerThread: Thread? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val isLoopRunning = AtomicBoolean(false)
+    private val benchmarkIterations = AtomicLong(0L)
+    private var benchmarkJob: Job? = null
 
     init {
-        Log.i(TAG, "UserService instantiated in process: ${Process.myPid()} with UID: ${Process.myUid()}")
-        startPersistentTask()
+        Log.i(TAG, "UserService instantiated in process PID: ${Process.myPid()} with UID: ${Process.myUid()}")
+        startBenchmarkLoop()
     }
 
     override fun destroy() {
-        Log.i(TAG, "UserService destroy called, terminating Shizuku user process")
-        stopPersistentTask()
+        Log.i(TAG, "UserService destroy called, stopping coroutines and terminating process")
+        stopBenchmarkLoop()
+        serviceScope.cancel()
         exitProcess(0)
     }
 
-    override fun startPersistentTask() {
-        if (isRunning.compareAndSet(false, true)) {
-            Log.i(TAG, "Starting persistent background task in Shizuku UserService")
-            workerThread = Thread({
-                while (isRunning.get() && !Thread.currentThread().isInterrupted) {
+    override fun startBenchmarkLoop() {
+        if (isLoopRunning.compareAndSet(false, true)) {
+            Log.i(TAG, "Starting persistent benchmark coroutine loop in Shizuku UserService (UID: ${Process.myUid()})")
+            benchmarkJob = serviceScope.launch {
+                var x = 0.12345
+                var y = 0.67890
+                val matrixA = DoubleArray(16) { i -> (i + 1) * 0.5 }
+                val matrixB = DoubleArray(16) { i -> (16 - i) * 1.5 }
+                val matrixC = DoubleArray(16)
+
+                while (isActive && isLoopRunning.get()) {
                     try {
-                        val count = executionCount.incrementAndGet()
-                        if (count % 10 == 0L) {
-                            Log.d(TAG, "Shizuku UserService active iteration: $count (UID: ${Process.myUid()})")
+                        // 1. Matrix multiplication calculations (stress)
+                        for (i in 0 until 4) {
+                            for (j in 0 until 4) {
+                                var sum = 0.0
+                                for (k in 0 until 4) {
+                                    sum += matrixA[i * 4 + k] * matrixB[k * 4 + j]
+                                }
+                                matrixC[i * 4 + j] = sum
+                            }
                         }
-                        // Continuous background heartbeat
-                        Thread.sleep(1000L)
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        break
+
+                        // 2. Trigonometric recurrence
+                        x = sin(x) * cos(y) + sqrt(abs(x + y)) - atan(y)
+                        y = cos(y) * sin(x) + sqrt(abs(matrixC[0]))
+
+                        val currentCount = benchmarkIterations.addAndGet(100L)
+                        if (currentCount % 10000L == 0L) {
+                            Log.d(TAG, "Shizuku Benchmark active: $currentCount ops (PID: ${Process.myPid()}, UID: ${Process.myUid()})")
+                        }
+
+                        // Small non-blocking yield to allow coroutine cooperation
+                        delay(10L)
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error in persistent loop", e)
+                        Log.e(TAG, "Exception in benchmark coroutine loop", e)
                     }
                 }
-            }, "ShizukuPersistentWorker").apply {
-                priority = Thread.NORM_PRIORITY
-                isDaemon = true
-                start()
             }
         }
     }
 
-    override fun stopPersistentTask() {
-        isRunning.set(false)
-        workerThread?.interrupt()
-        workerThread = null
+    override fun stopBenchmarkLoop() {
+        if (isLoopRunning.compareAndSet(true, false)) {
+            Log.i(TAG, "Stopping persistent benchmark loop in Shizuku UserService")
+            benchmarkJob?.cancel()
+            benchmarkJob = null
+        }
     }
 
-    override fun isTaskRunning(): Boolean {
-        return isRunning.get()
-    }
-
-    override fun getTaskStatus(): String {
-        val uid = Process.myUid()
-        val pid = Process.myPid()
-        val state = if (isRunning.get()) "ACTIVO" else "DETENIDO"
-        return "Shizuku Service [$state] • PID: $pid • UID: $uid (shell/system) • Ciclos: ${executionCount.get()}"
+    override fun isRunning(): Boolean {
+        return isLoopRunning.get()
     }
 
     override fun executeCommand(command: String?): String {
@@ -100,10 +124,6 @@ class UserService : IUserService.Stub() {
         } catch (e: Exception) {
             "Error ejecutando comando: ${e.message}"
         }
-    }
-
-    override fun getExecutionCount(): Long {
-        return executionCount.get()
     }
 
     companion object {

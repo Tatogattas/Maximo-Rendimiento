@@ -588,11 +588,15 @@ class AppForegroundService : Service() {
         if (!_isServiceRunning.value) return
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val stressTag = if (_isBenchmarkActive.value) "[AnTuTu MAX LOAD] " else ""
-        val updatedText = "%sCPU: %.1f%% (%d núcleos) | Ops: %,d".format(
+        val hw = snapshot.hardwareDetails ?: CpuMonitor.getHardwareDetails()
+        val procName = hw.processorName.take(24)
+        val gov = if (ShizukuHelper.isGovernorPerformance.value) "PERFORMANCE (OK)" else "NORMAL"
+        val updatedText = "%sCPU: %.1f%% (%d cores) | %s | Gov: %s".format(
             stressTag,
             snapshot.totalUsagePercent,
             snapshot.cores.size,
-            _totalBenchmarkOperations.value
+            procName,
+            gov
         )
         val notification = buildNotification(updatedText)
         notificationManager.notify(NOTIFICATION_ID, notification)
@@ -652,6 +656,7 @@ class AppForegroundService : Service() {
         _uptimeSeconds.value = 0L
         _serviceStartTime.value = 0L
         _totalBenchmarkOperations.value = 0L
+        ShizukuHelper.restoreNormalGovernor()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -662,6 +667,7 @@ class AppForegroundService : Service() {
         stopMultiThreadedAnTuTuStress()
         stopContinuousTelemetryMonitor()
         releaseWakeLockInternal()
+        ShizukuHelper.restoreNormalGovernor()
         serviceScope.cancel()
         _isServiceRunning.value = false
     }
@@ -695,9 +701,15 @@ class AppForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val isPerf = ShizukuHelper.isGovernorPerformance.value
+        val shizukuConnected = ShizukuHelper.isServiceConnected.value
+        val govBadge = if (isPerf) "Gov: PERFORMANCE [100% Pico]" else "Gov: NORMAL [schedutil]"
+        val shizukuBadge = if (shizukuConnected) "UID 2000 [OK]" else "Shizuku: Offline"
+        val dynamicSubText = "$govBadge • $shizukuBadge"
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("com.antutu.ABenchMark")
-            .setSubText("com.antutu.ABenchMark")
+            .setSubText(dynamicSubText)
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)

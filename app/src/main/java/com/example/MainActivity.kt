@@ -2,6 +2,7 @@ package com.example
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -58,15 +59,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -80,6 +88,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -91,6 +102,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -185,6 +197,8 @@ fun MainContainerScreen(
     onShowOverlay: () -> Unit,
     onHideOverlay: () -> Unit
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     val isServiceRunning by AppForegroundService.isServiceRunning.collectAsState()
     val serviceCpuSnapshot by AppForegroundService.latestCpuSnapshot.collectAsState()
     var localCpuSnapshot by remember { mutableStateOf(CpuMonitor.sampleCpuUsage()) }
@@ -214,14 +228,58 @@ fun MainContainerScreen(
             .fillMaxSize()
             .background(if (isFullscreenLandscape) Color.Transparent else Color(0xFF0F172A))
     ) {
-        // Main Screen configured to show exclusively the Telemetry Dashboard
         if (!isFullscreenLandscape) {
-            TelemetryMainScreen(
-                cpuSnapshot = currentCpuSnapshot,
-                onShowOverlay = onShowOverlay,
-                onHideOverlay = onHideOverlay,
-                onEnterFullscreenLandscape = onEnterFullscreenLandscape
-            )
+            Scaffold(
+                containerColor = Color.Transparent,
+                bottomBar = {
+                    NavigationBar(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f),
+                        tonalElevation = 8.dp
+                    ) {
+                        NavigationBarItem(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            icon = { Icon(Icons.Default.Memory, contentDescription = "Telemetría") },
+                            label = { Text("Telemetría CPU", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color(0xFF38BDF8),
+                                unselectedIconColor = Color(0xFF94A3B8),
+                                unselectedTextColor = Color(0xFF94A3B8),
+                                indicatorColor = Color(0xFF0284C7)
+                            )
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = { Icon(Icons.Default.Shield, contentDescription = "Auditoría & Shizuku") },
+                            label = { Text("Auditoría & Shizuku", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Color(0xFF38BDF8),
+                                unselectedIconColor = Color(0xFF94A3B8),
+                                unselectedTextColor = Color(0xFF94A3B8),
+                                indicatorColor = Color(0xFF0284C7)
+                            )
+                        )
+                    }
+                }
+            ) { scaffoldPadding ->
+                Box(modifier = Modifier.padding(scaffoldPadding)) {
+                    if (selectedTab == 0) {
+                        TelemetryMainScreen(
+                            cpuSnapshot = currentCpuSnapshot,
+                            onShowOverlay = onShowOverlay,
+                            onHideOverlay = onHideOverlay,
+                            onEnterFullscreenLandscape = onEnterFullscreenLandscape
+                        )
+                    } else {
+                        ShizukuAuditScreen(
+                            cpuSnapshot = currentCpuSnapshot
+                        )
+                    }
+                }
+            }
         }
 
         // Fullscreen Horizontal Telemetry View (Transparent Theme: 5% - 80% opacity)
@@ -397,21 +455,45 @@ fun TelemetryMainScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = hw.processorName,
-                            fontSize = 16.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Black,
                             color = Color.White
                         )
+                        if (hw.chipsetModel.isNotEmpty()) {
+                            Text(
+                                text = "Chipset: ${hw.chipsetModel} (${hw.socManufacturer})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = "${hw.hardwareModel} • Arch: ${hw.architecture} • Governor: ${hw.governor}",
+                            text = "${hw.hardwareModel} • Arch: ${hw.architecture} • Gov: ${hw.governor}",
                             fontSize = 11.sp,
                             color = Color(0xFFCBD5E1)
                         )
-                        if (hw.bogoMips != "N/A" || hw.cacheSize != "N/A") {
-                            Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Clústeres: ${hw.clusterLayout}",
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Text(
-                                text = "BogoMIPS: ${hw.bogoMips} | Caché L2/L3: ${hw.cacheSize}",
+                                text = "Frecuencias: ${hw.minFreqFormatted} – ${hw.maxFreqFormatted}",
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
+                                color = Color(0xFFFCD34D)
+                            )
+                            Text(
+                                text = "${hw.coreCount} Núcleos Activos",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
                                 color = Color(0xFF38BDF8)
                             )
                         }
@@ -1248,3 +1330,576 @@ fun CoreGridCardTransparent(core: CoreUsage, cardAlpha: Float = 0.55f) {
         }
     }
 }
+
+/**
+ * Second Tab: Audit & Verification Screen for Shizuku and CPU Governor
+ * Clearly indicates whether previous codes succeeded or failed on startup and shutdown.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ShizukuAuditScreen(
+    cpuSnapshot: CpuSnapshot
+) {
+    val context = LocalContext.current
+    val auditLogs by ShizukuHelper.auditLogs.collectAsState()
+    val lastStartup by ShizukuHelper.lastStartupResult.collectAsState()
+    val lastShutdown by ShizukuHelper.lastShutdownResult.collectAsState()
+    val isGovernorPerf by ShizukuHelper.isGovernorPerformance.collectAsState()
+    val clusterGovernors by ShizukuHelper.clusterGovernors.collectAsState()
+    val isServiceConnected by ShizukuHelper.isServiceConnected.collectAsState()
+    val isShizukuAvailable by ShizukuHelper.isShizukuAvailable.collectAsState()
+    val isPermissionGranted by ShizukuHelper.isPermissionGranted.collectAsState()
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Auditoría & Estado Shizuku",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Verificación de códigos al encender y apagar",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { ShizukuHelper.refreshGovernorStatus() },
+                        modifier = Modifier.testTag("refresh_audit_button")
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refrescar estado", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color(0xFF1E293B).copy(alpha = 0.9f)
+                )
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Estado de códigos al Encender y al Apagar
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF38BDF8))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "VERIFICACIÓN DE EJECUCIÓN DE CÓDIGOS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF94A3B8),
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Resultado al Encender la app
+                        val startupSuccess = lastStartup?.isSuccess ?: isServiceConnected
+                        Surface(
+                            color = if (startupSuccess) Color(0xFF065F46).copy(alpha = 0.35f) else Color(0xFF7F1D1D).copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (startupSuccess) Color(0xFF10B981) else Color(0xFFEF4444)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (startupSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                                    contentDescription = null,
+                                    tint = if (startupSuccess) Color(0xFF34D399) else Color(0xFFF87171),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "AL ENCENDER LA APP",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = if (startupSuccess) "FUNCIONÓ (ÉXITO)" else "FALLÓ",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (startupSuccess) Color(0xFF34D399) else Color(0xFFF87171)
+                                        )
+                                    }
+                                    Text(
+                                        text = lastStartup?.summary ?: if (startupSuccess) "Servicio Shizuku conectado con UID 2000 y bucle de benchmark activado." else "Shizuku no está disponible o el permiso no fue concedido.",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFE2E8F0)
+                                    )
+                                    if (lastStartup?.formattedTime != null) {
+                                        Text(
+                                            text = "Hora: ${lastStartup?.formattedTime}",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color(0xFF94A3B8)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Resultado al Apagar el servicio
+                        val shutdownSuccess = lastShutdown?.isSuccess == true
+                        Surface(
+                            color = if (shutdownSuccess) Color(0xFF065F46).copy(alpha = 0.35f) else Color(0xFF1E293B),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (shutdownSuccess) Color(0xFF10B981) else Color(0xFF64748B)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (shutdownSuccess) Icons.Default.CheckCircle else Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = if (shutdownSuccess) Color(0xFF34D399) else Color(0xFF38BDF8),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "AL APAGAR EL SERVICIO",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = if (shutdownSuccess) "FUNCIONÓ (RESTAURADO)" else "EN EJECUCIÓN",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (shutdownSuccess) Color(0xFF34D399) else Color(0xFF38BDF8)
+                                        )
+                                    }
+                                    Text(
+                                        text = lastShutdown?.summary ?: "El servicio está actualmente activo. Al detenerlo, se restaurará el governor a schedutil/normal.",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFCBD5E1)
+                                    )
+                                    if (lastShutdown?.formattedTime != null) {
+                                        Text(
+                                            text = "Hora: ${lastShutdown?.formattedTime}",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color(0xFF94A3B8)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Real-Time CPU Governor Policy Status Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isGovernorPerf) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Speed, contentDescription = null, tint = if (isGovernorPerf) Color(0xFF10B981) else Color(0xFF38BDF8))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ESTADO DEL REGULADOR DE CPU (KERNEL)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF94A3B8),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            Surface(
+                                color = if (isGovernorPerf) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFF38BDF8).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = if (isGovernorPerf) "PERFORMANCE 100%" else "NORMAL (SCHEDUTIL)",
+                                    color = if (isGovernorPerf) Color(0xFF34D399) else Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Políticas detectadas en /sys/devices/system/cpu/cpufreq:",
+                            fontSize = 10.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Policies breakdown
+                        clusterGovernors.forEach { cluster ->
+                            Surface(
+                                color = Color(0xFF0F172A).copy(alpha = 0.8f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (cluster.isPerformance) Color(0xFF10B981).copy(alpha = 0.4f) else Color(0xFF38BDF8).copy(alpha = 0.25f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = cluster.name,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Rango: ${cluster.minFreqMhz} - ${cluster.maxFreqMhz}",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color(0xFF94A3B8)
+                                        )
+                                    }
+                                    Surface(
+                                        color = if (cluster.isPerformance) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFF64748B).copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = cluster.governor.uppercase(),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (cluster.isPerformance) Color(0xFF34D399) else Color(0xFFE2E8F0),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Manual Control Buttons to test immediately
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val success = ShizukuHelper.applyPerformanceGovernor()
+                                    Toast.makeText(
+                                        context,
+                                        if (success) "Governor fijado a Performance" else "Error al fijar governor (verifica Shizuku)",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.weight(1f).height(42.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                            ) {
+                                Text("Probar Performance", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val success = ShizukuHelper.restoreNormalGovernor()
+                                    Toast.makeText(
+                                        context,
+                                        if (success) "Governor restaurado a Normal" else "Error al restaurar",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.weight(1f).height(42.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                            ) {
+                                Text("Probar Normal", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Shizuku Connection Status Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Terminal, contentDescription = null, tint = Color(0xFF38BDF8))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ESTADO SERVIDOR SHIZUKU (UID 2000)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF94A3B8),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            Surface(
+                                color = if (isServiceConnected) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFEF4444).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = if (isServiceConnected) "UID 2000 ACTIVO" else "DESCONECTADO",
+                                    color = if (isServiceConnected) Color(0xFF34D399) else Color(0xFFF87171),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Servidor: ${if (isShizukuAvailable) "En ejecución" else "No detectado"} • Permiso: ${if (isPermissionGranted) "Concedido" else "No otorgado"} • Proceso: shizuku_service",
+                            fontSize = 10.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    (context as? Activity)?.let {
+                                        ShizukuHelper.requestPermission(it)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Pedir Permiso", fontSize = 10.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    ShizukuHelper.bindService(context)
+                                },
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Re-Vincular", fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Audit Logs History Header & Clear
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "HISTORIAL DE EVENTOS Y LOGS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF94A3B8),
+                        letterSpacing = 0.5.sp
+                    )
+                    IconButton(
+                        onClick = { ShizukuHelper.clearLogs() },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Limpiar logs", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+
+            // Audit Logs items
+            if (auditLogs.isEmpty()) {
+                item {
+                    Surface(
+                        color = Color(0xFF1E293B).copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Sin registros recientes. Inicia o detén el servicio para generar eventos.",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+                }
+            } else {
+                items(auditLogs.size) { index ->
+                    val entry = auditLogs[index]
+                    Surface(
+                        color = Color(0xFF1E293B).copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (entry.isSuccess) Color(0xFF10B981).copy(alpha = 0.4f) else Color(0xFFEF4444).copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        if (entry.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                                        contentDescription = null,
+                                        tint = if (entry.isSuccess) Color(0xFF34D399) else Color(0xFFF87171),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = entry.action,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color.White
+                                    )
+                                }
+                                Surface(
+                                    color = if (entry.isSuccess) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFEF4444).copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = if (entry.isSuccess) "ÉXITO" else "FALLO",
+                                        color = if (entry.isSuccess) Color(0xFF34D399) else Color(0xFFF87171),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = entry.summary,
+                                fontSize = 10.sp,
+                                color = Color(0xFFE2E8F0)
+                            )
+                            if (entry.details.isNotEmpty()) {
+                                Text(
+                                    text = entry.details,
+                                    fontSize = 9.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+                            if (entry.executedCommand.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Surface(
+                                    color = Color(0xFF0F172A),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "$ ${entry.executedCommand}",
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF38BDF8),
+                                        modifier = Modifier.padding(6.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = entry.formattedTime,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF64748B),
+                                modifier = Modifier.align(Alignment.End)
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+

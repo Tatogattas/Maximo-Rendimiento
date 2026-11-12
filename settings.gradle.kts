@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Service Hub"
+rootProject.name = "Game Mode"
 
 include(":app")

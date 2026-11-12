@@ -16,99 +16,85 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.abs
-import kotlin.math.atan
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlin.system.exitProcess
 
 /**
  * Shizuku UserService implementation.
  * Runs in an independent process with system shell privileges (UID 2000).
- * Kept alive continuously with coroutines running mathematical loops.
  *
- * Configures the CPU governor to 'performance' mode on startBenchmarkLoop
- * using Shizuku.newProcess, and restores it to normal/balanced mode on onDestroy.
+ * Manages device native performance mode without artificial heavy math stress loops:
+ * - On startBenchmarkLoop: activates system native high performance mode and disables thermal limits:
+ *   1) settings put system power_mode_type 2
+ *   2) settings put secure high_performance_mode_on 1
+ *   3) cmd thermalservice override-status 0
+ * - On onDestroy / stopBenchmarkLoop: restores normal system settings and resets thermal service:
+ *   1) settings put system power_mode_type 0
+ *   2) settings put secure high_performance_mode_on 0
+ *   3) cmd thermalservice reset
+ *
+ * Captures exitCode, stdout, and stderr for each command and logs detailed results in Logcat.
  */
 @Keep
 class UserService : IUserService.Stub() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val isLoopRunning = AtomicBoolean(false)
-    private val benchmarkIterations = AtomicLong(0L)
-    private var benchmarkJob: Job? = null
+    private var heartbeatJob: Job? = null
 
-    // Cache of original governors to restore exactly the user's previous governor
-    private val originalGovernors = mutableMapOf<String, String>()
+    // Holds command execution results for startup and shutdown
+    private val startupResults = mutableListOf<String>()
+    private val shutdownResults = mutableListOf<String>()
 
     init {
-        Log.i(TAG, "UserService instanciado en PID: ${Process.myPid()} con UID: ${Process.myUid()}")
-        saveOriginalGovernors()
+        Log.i(TAG, "UserService instanciado con éxito en PID: ${Process.myPid()} con UID: ${Process.myUid()}")
         startBenchmarkLoop()
     }
 
-    /**
-     * Standard AIDL termination method for Shizuku UserService.
-     */
     override fun destroy() {
         onDestroy()
     }
 
     /**
-     * Executes cleanup and restores CPU governor to its normal state via Shizuku
+     * Executes cleanup and restores system power & thermal settings via Shizuku
      * before terminating the UserService process.
      */
     fun onDestroy() {
-        Log.i(TAG, "UserService onDestroy invocado: restaurando CPU governor y finalizando proceso")
+        Log.i(TAG, "UserService onDestroy invocado: ejecutando comandos de restauración del sistema")
         stopBenchmarkLoop()
-        restoreCpuGovernor()
+        restoreSystemSettings()
         serviceScope.cancel()
         exitProcess(0)
     }
 
     override fun startBenchmarkLoop() {
         if (isLoopRunning.compareAndSet(false, true)) {
-            Log.i(TAG, "Iniciando bucle de benchmark persistente en UserService (UID: ${Process.myUid()})")
+            Log.i(TAG, "Iniciando modo de alto rendimiento nativo mediante Shizuku (UID: ${Process.myUid()})")
 
-            // 1. Configurar y fijar el regulador de la CPU a 'performance' mediante Shizuku.newProcess
-            setCpuGovernorPerformance()
+            val startupCommands = listOf(
+                "settings put system power_mode_type 2",
+                "settings put secure high_performance_mode_on 1",
+                "cmd thermalservice override-status 0"
+            )
 
-            // 2. Iniciar bucle de corrutinas con cálculo intensivo
-            benchmarkJob = serviceScope.launch {
-                var x = 0.12345
-                var y = 0.67890
-                val matrixA = DoubleArray(16) { i -> (i + 1) * 0.5 }
-                val matrixB = DoubleArray(16) { i -> (16 - i) * 1.5 }
-                val matrixC = DoubleArray(16)
+            synchronized(startupResults) {
+                startupResults.clear()
+                for (cmd in startupCommands) {
+                    val result = runShellCommand(cmd)
+                    val statusFormatted = "${result.command}|${result.exitCode}|${result.isSuccess}|${result.stdout}|${result.stderr}"
+                    startupResults.add(statusFormatted)
 
-                while (isActive && isLoopRunning.get()) {
-                    try {
-                        // Multiplicación de matrices de 64-bits
-                        for (i in 0 until 4) {
-                            for (j in 0 until 4) {
-                                var sum = 0.0
-                                for (k in 0 until 4) {
-                                    sum += matrixA[i * 4 + k] * matrixB[k * 4 + j]
-                                }
-                                matrixC[i * 4 + j] = sum
-                            }
-                        }
-
-                        // Series trigonométricas continuas
-                        x = sin(x) * cos(y) + sqrt(abs(x + y)) - atan(y)
-                        y = cos(y) * sin(x) + sqrt(abs(matrixC[0]))
-
-                        val total = benchmarkIterations.addAndGet(100L)
-                        if (total % 10000L == 0L) {
-                            Log.d(TAG, "Shizuku Benchmark activo: $total ops (PID: ${Process.myPid()}, UID: ${Process.myUid()})")
-                        }
-
-                        delay(10L)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error en bucle de benchmark", e)
+                    if (result.isSuccess) {
+                        Log.i(TAG, "STARTUP CMD [EXIT 0 OK]: ${result.command} | Stdout: '${result.stdout}'")
+                    } else {
+                        Log.e(TAG, "STARTUP CMD [EXIT ${result.exitCode} ERROR]: ${result.command} | Stderr: '${result.stderr}'")
                     }
+                }
+            }
+
+            // Lightweight non-stress heartbeat coroutine to keep process state alive
+            heartbeatJob = serviceScope.launch {
+                while (isActive && isLoopRunning.get()) {
+                    delay(1000L)
                 }
             }
         }
@@ -116,12 +102,33 @@ class UserService : IUserService.Stub() {
 
     override fun stopBenchmarkLoop() {
         if (isLoopRunning.compareAndSet(true, false)) {
-            Log.i(TAG, "Deteniendo bucle de benchmark en UserService")
-            benchmarkJob?.cancel()
-            benchmarkJob = null
+            Log.i(TAG, "Deteniendo modo alto rendimiento y restaurando valores del sistema")
+            heartbeatJob?.cancel()
+            heartbeatJob = null
+            restoreSystemSettings()
+        }
+    }
 
-            // Restaurar el regulador de la CPU a su estado normal
-            restoreCpuGovernor()
+    private fun restoreSystemSettings() {
+        val restoreCommands = listOf(
+            "settings put system power_mode_type 0",
+            "settings put secure high_performance_mode_on 0",
+            "cmd thermalservice reset"
+        )
+
+        synchronized(shutdownResults) {
+            shutdownResults.clear()
+            for (cmd in restoreCommands) {
+                val result = runShellCommand(cmd)
+                val statusFormatted = "${result.command}|${result.exitCode}|${result.isSuccess}|${result.stdout}|${result.stderr}"
+                shutdownResults.add(statusFormatted)
+
+                if (result.isSuccess) {
+                    Log.i(TAG, "SHUTDOWN CMD [EXIT 0 OK]: ${result.command} | Stdout: '${result.stdout}'")
+                } else {
+                    Log.e(TAG, "SHUTDOWN CMD [EXIT ${result.exitCode} ERROR]: ${result.command} | Stderr: '${result.stderr}'")
+                }
+            }
         }
     }
 
@@ -131,37 +138,103 @@ class UserService : IUserService.Stub() {
 
     override fun executeCommand(command: String?): String {
         if (command.isNullOrBlank()) return ""
-        return executeShizukuShell(command)
+        val result = runShellCommand(command)
+        return if (result.isSuccess) {
+            if (result.stdout.isNotEmpty()) result.stdout else "OK (exitCode: 0)"
+        } else {
+            "ERROR (exitCode: ${result.exitCode}): ${result.stderr}"
+        }
     }
 
     /**
-     * Executes shell commands using Shizuku.newProcess via reflection
-     * (as it is marked private static in Shizuku v13), with native fallback to Runtime.getRuntime().exec
-     * (which runs with UID 2000 within this Shizuku process).
+     * Exposes detailed command execution status to the main UI.
+     * Encodes startup and shutdown command results separated by section.
      */
-    private fun executeShizukuShell(command: String): String {
+    override fun getExecutionStatus(): String {
+        val sb = StringBuilder()
+        sb.append("STARTUP:")
+        synchronized(startupResults) {
+            sb.append(startupResults.joinToString(";;"))
+        }
+        sb.append("###SHUTDOWN:")
+        synchronized(shutdownResults) {
+            sb.append(shutdownResults.joinToString(";;"))
+        }
+        return sb.toString()
+    }
+
+    data class ShellExecutionResult(
+        val command: String,
+        val exitCode: Int,
+        val stdout: String,
+        val stderr: String,
+        val isSuccess: Boolean
+    )
+
+    /**
+     * Executes shell commands using Shizuku.newProcess via reflection
+     * (as it is marked private static in Shizuku v13), with native fallback to Runtime.getRuntime().exec.
+     * Captures exitCode, stdout, and stderr.
+     */
+    private fun runShellCommand(command: String): ShellExecutionResult {
         return try {
             val cmdArray = arrayOf("sh", "-c", command)
             val process = newProcess(cmdArray, null, null)
 
-            val output = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    output.append(line).append("\n")
-                }
+            val stdoutBuilder = StringBuilder()
+            val stderrBuilder = StringBuilder()
+
+            val stdoutThread = Thread {
+                try {
+                    BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            if (stdoutBuilder.isNotEmpty()) stdoutBuilder.append("\n")
+                            stdoutBuilder.append(line)
+                        }
+                    }
+                } catch (_: Exception) {}
             }
-            BufferedReader(InputStreamReader(process.errorStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    output.append(line).append("\n")
-                }
+
+            val stderrThread = Thread {
+                try {
+                    BufferedReader(InputStreamReader(process.errorStream)).use { reader ->
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            if (stderrBuilder.isNotEmpty()) stderrBuilder.append("\n")
+                            stderrBuilder.append(line)
+                        }
+                    }
+                } catch (_: Exception) {}
             }
-            process.waitFor()
-            output.toString().trim()
+
+            stdoutThread.start()
+            stderrThread.start()
+
+            val exitCode = process.waitFor()
+            stdoutThread.join(1000)
+            stderrThread.join(1000)
+
+            val stdout = stdoutBuilder.toString().trim()
+            val stderr = stderrBuilder.toString().trim()
+            val isSuccess = (exitCode == 0)
+
+            ShellExecutionResult(
+                command = command,
+                exitCode = exitCode,
+                stdout = stdout,
+                stderr = stderr,
+                isSuccess = isSuccess
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "Error ejecutando comando via Shizuku: $command", e)
-            "Error: ${e.message}"
+            Log.e(TAG, "Excepción ejecutando comando: $command", e)
+            ShellExecutionResult(
+                command = command,
+                exitCode = -1,
+                stdout = "",
+                stderr = e.message ?: "Exception",
+                isSuccess = false
+            )
         }
     }
 
@@ -181,106 +254,6 @@ class UserService : IUserService.Stub() {
         } catch (_: Exception) {
             Runtime.getRuntime().exec(cmd, env, dir?.let { File(it) })
         }
-    }
-
-    /**
-     * Saves the current scaling_governor of each policy before modifying them.
-     */
-    private fun saveOriginalGovernors() {
-        try {
-            val policyDir = File("/sys/devices/system/cpu/cpufreq")
-            if (policyDir.exists() && policyDir.isDirectory) {
-                policyDir.listFiles { f -> f.name.startsWith("policy") }?.forEach { policy ->
-                    val govFile = File(policy, "scaling_governor")
-                    if (govFile.exists() && govFile.canRead()) {
-                        val gov = govFile.readText().trim()
-                        if (gov.isNotEmpty()) {
-                            originalGovernors[policy.absolutePath] = gov
-                            Log.d(TAG, "Governor original de ${policy.name}: $gov")
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "No se pudo leer governor original (continuará con fallback)", e)
-        }
-    }
-
-    /**
-     * Sets and locks the CPU governor to 'performance' mode across all policies and cores,
-     * setting scaling_min_freq = scaling_max_freq to lock frequencies at peak.
-     */
-    private fun setCpuGovernorPerformance() {
-        Log.i(TAG, "Configurando CPU governor en modo 'performance' via Shizuku.newProcess...")
-
-        val performanceShellScript = """
-            # 1. Configurar governor en performance para todas las politicas de cpufreq
-            for p in /sys/devices/system/cpu/cpufreq/policy*; do
-                if [ -d "${'$'}p" ]; then
-                    echo performance > "${'$'}p/scaling_governor" 2>/dev/null
-                    # Fijar frecuencia minima igual a la frecuencia maxima para mantener 100% de reloj
-                    if [ -f "${'$'}p/scaling_max_freq" ]; then
-                        cat "${'$'}p/scaling_max_freq" > "${'$'}p/scaling_min_freq" 2>/dev/null
-                    fi
-                fi
-            done
-
-            # 2. Configurar governor en performance para cada core individual
-            for c in /sys/devices/system/cpu/cpu*/cpufreq; do
-                if [ -d "${'$'}c" ]; then
-                    echo performance > "${'$'}c/scaling_governor" 2>/dev/null
-                fi
-            done
-
-            # 3. Desactivar throttling y ahorro agresivo en clusters Qualcomm Snapdragon
-            for ctl in /sys/devices/system/cpu/cpu*/core_ctl; do
-                if [ -d "${'$'}ctl" ]; then
-                    echo 0 > "${'$'}ctl/enable" 2>/dev/null
-                fi
-            done
-        """.trimIndent()
-
-        val result = executeShizukuShell(performanceShellScript)
-        Log.i(TAG, "Comando performance ejecutado. Output: $result")
-    }
-
-    /**
-     * Restores CPU governor to normal/balanced mode (schedutil or original governors)
-     * and restores scaling_min_freq back to cpuinfo_min_freq.
-     */
-    private fun restoreCpuGovernor() {
-        Log.i(TAG, "Restaurando CPU governor a estado normal via Shizuku.newProcess...")
-
-        val restoreShellScript = """
-            # 1. Restaurar frecuencia mínima y governor balanceado en todas las políticas
-            for p in /sys/devices/system/cpu/cpufreq/policy*; do
-                if [ -d "${'$'}p" ]; then
-                    # Restaurar frecuencia minima base del procesador
-                    if [ -f "${'$'}p/cpuinfo_min_freq" ]; then
-                        cat "${'$'}p/cpuinfo_min_freq" > "${'$'}p/scaling_min_freq" 2>/dev/null
-                    fi
-                    # Restaurar governor normal: schedutil (Android moderno), interactive o powersave
-                    echo schedutil > "${'$'}p/scaling_governor" 2>/dev/null || echo interactive > "${'$'}p/scaling_governor" 2>/dev/null || echo ondemand > "${'$'}p/scaling_governor" 2>/dev/null
-                fi
-            done
-
-            # 2. Restaurar governor normal en cores individuales
-            for c in /sys/devices/system/cpu/cpu*/cpufreq; do
-                if [ -d "${'$'}c" ]; then
-                    echo schedutil > "${'$'}c/scaling_governor" 2>/dev/null || echo interactive > "${'$'}c/scaling_governor" 2>/dev/null
-                fi
-            done
-
-            # 3. Reactivar core_ctl para gestión energética normal
-            for ctl in /sys/devices/system/cpu/cpu*/core_ctl; do
-                if [ -d "${'$'}ctl" ]; then
-                    echo 1 > "${'$'}ctl/enable" 2>/dev/null
-                fi
-            done
-        """.trimIndent()
-
-        val result = executeShizukuShell(restoreShellScript)
-        Log.i(TAG, "Comando restauracion ejecutado. Output: $result")
     }
 
     companion object {

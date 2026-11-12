@@ -135,7 +135,7 @@ class AppForegroundService : Service() {
         startMultiThreadedAnTuTuStress()
         startContinuousTelemetryMonitor()
 
-        val notification = buildNotification("AnTuTu CPU Benchmark: Multi-hilo a máxima carga")
+        val notification = buildNotification("Game Mode: Alto Rendimiento y Telemetría Activa")
         startForeground(NOTIFICATION_ID, notification)
 
         serviceScope.launch {
@@ -147,131 +147,37 @@ class AppForegroundService : Service() {
     }
 
     /**
-     * AnTuTu Benchmark Multi-Threaded CPU Stress Test:
-     * Launches parallel worker threads across all available CPU cores.
-     * Each thread executes continuous tight mathematical loops WITHOUT ANY PAUSES OR SLEEP:
-     * - 64-bit Matrix Multiplications
-     * - Trigonometric series: sin(x) * cos(x) + sqrt(|x|) - atan(x)
-     * - Mandelbrot fractal point coordinate recurrence: z = z^2 + c
-     * - Sieve prime factorization
-     * - Xorshift128+ bitwise cryptographic permutations
-     * This pushes every CPU core to 100% maximum capacity, exactly like AnTuTu Benchmark.
+     * Native High Performance Mode management via Shizuku:
+     * Eliminates artificial math loops and directly enables device native high performance mode
+     * and thermal bypass (settings put system power_mode_type 2, high_performance_mode_on 1, thermalservice override-status 0).
      */
-    private fun startMultiThreadedAnTuTuStress() {
-        if (isBenchmarkRunning.compareAndSet(false, true)) {
-            _isBenchmarkActive.value = true
-            benchmarkThreads.clear()
-
-            val coreCount = CpuMonitor.getCoreCount()
-            _activeBenchmarkThreads.value = coreCount
-
-            for (threadIndex in 0 until coreCount) {
-                val workerThread = Thread({
-                    try {
-                        // High execution priority for maximum CPU stress
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-                    } catch (_: Exception) {
-                        try {
-                            Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND)
-                        } catch (_: Exception) {}
-                    }
-
-                    // Pre-allocated matrices and seed variables for high-throughput math
-                    var seedA = (threadIndex + 1L) * 1103515245L + 12345L
-                    var seedB = seedA xor 0x5DEECE66DL
-                    var x = 0.123456789 * (threadIndex + 1)
-                    var y = 0.987654321 / (threadIndex + 1)
-
-                    val matrixA = DoubleArray(16) { i -> (i + threadIndex) * 0.75 }
-                    val matrixB = DoubleArray(16) { i -> (15 - i + threadIndex) * 1.25 }
-                    val matrixC = DoubleArray(16)
-
-                    var localOps = 0L
-
-                    // CONTINUOUS LOOP WITHOUT PAUSES - ZERO SLEEP
-                    while (isBenchmarkRunning.get() && !Thread.currentThread().isInterrupted) {
-                        // 1. Matrix Multiplication (4x4 double precision)
-                        for (i in 0 until 4) {
-                            for (j in 0 until 4) {
-                                var sum = 0.0
-                                for (k in 0 until 4) {
-                                    sum += matrixA[i * 4 + k] * matrixB[k * 4 + j]
-                                }
-                                matrixC[i * 4 + j] = sum
-                            }
-                        }
-
-                        // 2. Trigonometric and Transcendental Series
-                        x = sin(x) * cos(y) + sqrt(abs(x + y)) - atan(y)
-                        y = cos(y) * sin(x) + sqrt(abs(matrixC[0]))
-
-                        // 3. Mandelbrot complex recurrence: z = z^2 + c
-                        var zr = x
-                        var zi = y
-                        val cr = (seedA and 0xFFFF) / 65536.0 - 0.5
-                        val ci = (seedB and 0xFFFF) / 65536.0 - 0.5
-                        for (iter in 0 until 12) {
-                            val zr2 = zr * zr
-                            val zi2 = zi * zi
-                            if (zr2 + zi2 > 4.0) {
-                                zr = cr
-                                zi = ci
-                            } else {
-                                zi = 2.0 * zr * zi + ci
-                                zr = zr2 - zi2 + cr
-                            }
-                        }
-
-                        // 4. Xorshift128+ 64-bit bitwise mixing
-                        var s1 = seedA
-                        val s0 = seedB
-                        seedA = s0
-                        s1 = s1 xor (s1 shl 23)
-                        seedB = s1 xor s0 xor (s1 ushr 17) xor (s0 ushr 26)
-
-                        localOps += 64L
-
-                        // Periodically flush local counter to global atomic counter
-                        if ((localOps and 0x3FFL) == 0L) {
-                            val globalTotal = totalOpsCounter.addAndGet(1024L)
-                            _totalBenchmarkOperations.value = globalTotal
-                        }
-                    }
-                }, "AnTuTuStressCore_$threadIndex").apply {
-                    priority = Thread.MAX_PRIORITY
-                    isDaemon = true
-                    start()
-                }
-                benchmarkThreads.add(workerThread)
-            }
-
+    private fun startHighPerformanceMode() {
+        _isBenchmarkActive.value = true
+        serviceScope.launch {
+            ShizukuHelper.applyNativeHighPerformance()
             mainHandler.post {
                 Toast.makeText(
-                    this,
-                    "AnTuTu Stress Test Iniciado: ${coreCount} hilos a carga máxima continua",
+                    this@AppForegroundService,
+                    "Modo Alto Rendimiento del Sistema Activado (Shizuku UID 2000)",
                     Toast.LENGTH_SHORT
                 ).show()
             }
         }
     }
 
-    private fun stopMultiThreadedAnTuTuStress() {
-        if (isBenchmarkRunning.compareAndSet(true, false)) {
-            _isBenchmarkActive.value = false
-            _activeBenchmarkThreads.value = 0
-
-            benchmarkThreads.forEach { thread ->
-                try {
-                    thread.interrupt()
-                } catch (_: Exception) {}
-            }
-            benchmarkThreads.clear()
-
+    private fun stopHighPerformanceMode() {
+        _isBenchmarkActive.value = false
+        serviceScope.launch {
+            ShizukuHelper.restoreNativeSystemSettings()
             mainHandler.post {
-                Toast.makeText(this, "AnTuTu Stress Test Detenido", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@AppForegroundService, "Modo Normal Restaurado", Toast.LENGTH_SHORT).show()
             }
         }
     }
+
+    // Aliases for compatibility
+    private fun startMultiThreadedAnTuTuStress() = startHighPerformanceMode()
+    private fun stopMultiThreadedAnTuTuStress() = stopHighPerformanceMode()
 
     /**
      * Continuous Telemetry Monitor:
@@ -377,7 +283,7 @@ class AppForegroundService : Service() {
         }
 
         val titleView = TextView(this).apply {
-            text = "AnTuTu CPU Monitor"
+            text = "CPU & Performance Monitor"
             setTextColor(AndroidColor.WHITE)
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
@@ -385,8 +291,9 @@ class AppForegroundService : Service() {
         }
 
         val stressBadge = TextView(this).apply {
-            text = if (_isBenchmarkActive.value) "MAX LOAD" else "IDLE"
-            setTextColor(if (_isBenchmarkActive.value) AndroidColor.argb(255, 239, 68, 68) else AndroidColor.argb(255, 16, 185, 129))
+            val isPerf = _isBenchmarkActive.value || ShizukuHelper.isHighPerformanceActive.value
+            text = if (isPerf) "HIGH PERF" else "NORMAL"
+            setTextColor(if (isPerf) AndroidColor.argb(255, 239, 68, 68) else AndroidColor.argb(255, 16, 185, 129))
             textSize = 9f
             typeface = Typeface.DEFAULT_BOLD
             setPadding(8, 2, 8, 2)
@@ -569,9 +476,10 @@ class AppForegroundService : Service() {
         totalCpuTextView?.text = "Total CPU: $formattedTotal%"
         totalProgressBarView?.progress = snapshot.totalUsagePercent.toInt().coerceIn(0, 100)
 
-        stressStatusBadgeView?.text = if (_isBenchmarkActive.value) "MAX LOAD" else "IDLE"
+        val isPerf = _isBenchmarkActive.value || ShizukuHelper.isHighPerformanceActive.value
+        stressStatusBadgeView?.text = if (isPerf) "HIGH PERF" else "NORMAL"
         stressStatusBadgeView?.setTextColor(
-            if (_isBenchmarkActive.value) AndroidColor.argb(255, 239, 68, 68) else AndroidColor.argb(255, 16, 185, 129)
+            if (isPerf) AndroidColor.argb(255, 239, 68, 68) else AndroidColor.argb(255, 16, 185, 129)
         )
 
         snapshot.cores.forEachIndexed { index, core ->
@@ -587,16 +495,16 @@ class AppForegroundService : Service() {
     private fun updateNotificationWithCpu(snapshot: CpuSnapshot) {
         if (!_isServiceRunning.value) return
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val stressTag = if (_isBenchmarkActive.value) "[AnTuTu MAX LOAD] " else ""
+        val perfTag = if (_isBenchmarkActive.value || ShizukuHelper.isHighPerformanceActive.value) "[ALTO RENDIMIENTO] " else ""
         val hw = snapshot.hardwareDetails ?: CpuMonitor.getHardwareDetails()
         val procName = hw.processorName.take(24)
-        val gov = if (ShizukuHelper.isGovernorPerformance.value) "PERFORMANCE (OK)" else "NORMAL"
-        val updatedText = "%sCPU: %.1f%% (%d cores) | %s | Gov: %s".format(
-            stressTag,
+        val mode = if (ShizukuHelper.isHighPerformanceActive.value) "PERF (UID 2000)" else "NORMAL"
+        val updatedText = "%sCPU: %.1f%% (%d cores) | %s | Modo: %s".format(
+            perfTag,
             snapshot.totalUsagePercent,
             snapshot.cores.size,
             procName,
-            gov
+            mode
         )
         val notification = buildNotification(updatedText)
         notificationManager.notify(NOTIFICATION_ID, notification)
@@ -649,14 +557,14 @@ class AppForegroundService : Service() {
 
     private fun stopServiceInternal() {
         hideFloatingOverlayInternal()
-        stopMultiThreadedAnTuTuStress()
+        stopHighPerformanceMode()
         stopContinuousTelemetryMonitor()
         releaseWakeLockInternal()
         _isServiceRunning.value = false
         _uptimeSeconds.value = 0L
         _serviceStartTime.value = 0L
         _totalBenchmarkOperations.value = 0L
-        ShizukuHelper.restoreNormalGovernor()
+        ShizukuHelper.restoreNativeSystemSettings()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -664,10 +572,10 @@ class AppForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         hideFloatingOverlayInternal()
-        stopMultiThreadedAnTuTuStress()
+        stopHighPerformanceMode()
         stopContinuousTelemetryMonitor()
         releaseWakeLockInternal()
-        ShizukuHelper.restoreNormalGovernor()
+        ShizukuHelper.restoreNativeSystemSettings()
         serviceScope.cancel()
         _isServiceRunning.value = false
     }
@@ -678,10 +586,10 @@ class AppForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "com.antutu.ABenchMark Priority Service",
+                "Game Mode Priority Service",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "com.antutu.ABenchMark High-Priority Foreground Service"
+                description = "Game Mode Booster High-Priority Foreground Service (v1.3)"
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 enableVibration(false)
                 setSound(null, null)
@@ -701,14 +609,14 @@ class AppForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val isPerf = ShizukuHelper.isGovernorPerformance.value
+        val isPerf = ShizukuHelper.isHighPerformanceActive.value
         val shizukuConnected = ShizukuHelper.isServiceConnected.value
-        val govBadge = if (isPerf) "Gov: PERFORMANCE [100% Pico]" else "Gov: NORMAL [schedutil]"
+        val modeBadge = if (isPerf) "Modo: ALTO RENDIMIENTO (ON)" else "Modo: NORMAL (Balanceado)"
         val shizukuBadge = if (shizukuConnected) "UID 2000 [OK]" else "Shizuku: Offline"
-        val dynamicSubText = "$govBadge • $shizukuBadge"
+        val dynamicSubText = "$modeBadge • $shizukuBadge"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("com.antutu.ABenchMark")
+            .setContentTitle("Game Mode Booster v1.3")
             .setSubText(dynamicSubText)
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)

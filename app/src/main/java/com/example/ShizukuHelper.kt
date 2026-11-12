@@ -13,11 +13,18 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class CommandStatus(
+    val command: String,
+    val exitCode: Int,
+    val isSuccess: Boolean,
+    val stdout: String,
+    val stderr: String
+)
 
 data class AuditLogEntry(
     val id: Long = System.currentTimeMillis() + (0..999).random(),
@@ -55,6 +62,16 @@ object ShizukuHelper {
     private val _serviceStatusMessage = MutableStateFlow("Shizuku no conectado")
     val serviceStatusMessage: StateFlow<String> = _serviceStatusMessage.asStateFlow()
 
+    // Command-level execution states exposed directly to UI
+    private val _startupCommandResults = MutableStateFlow<List<CommandStatus>>(emptyList())
+    val startupCommandResults: StateFlow<List<CommandStatus>> = _startupCommandResults.asStateFlow()
+
+    private val _shutdownCommandResults = MutableStateFlow<List<CommandStatus>>(emptyList())
+    val shutdownCommandResults: StateFlow<List<CommandStatus>> = _shutdownCommandResults.asStateFlow()
+
+    private val _isHighPerformanceActive = MutableStateFlow(false)
+    val isHighPerformanceActive: StateFlow<Boolean> = _isHighPerformanceActive.asStateFlow()
+
     // Audit logs for tracking whether scripts/codes succeeded or failed
     private val _auditLogs = MutableStateFlow<List<AuditLogEntry>>(emptyList())
     val auditLogs: StateFlow<List<AuditLogEntry>> = _auditLogs.asStateFlow()
@@ -64,15 +81,6 @@ object ShizukuHelper {
 
     private val _lastShutdownResult = MutableStateFlow<AuditLogEntry?>(null)
     val lastShutdownResult: StateFlow<AuditLogEntry?> = _lastShutdownResult.asStateFlow()
-
-    private val _isGovernorPerformance = MutableStateFlow(false)
-    val isGovernorPerformance: StateFlow<Boolean> = _isGovernorPerformance.asStateFlow()
-
-    private val _governorStatusText = MutableStateFlow("NORMAL (schedutil)")
-    val governorStatusText: StateFlow<String> = _governorStatusText.asStateFlow()
-
-    private val _clusterGovernors = MutableStateFlow<List<ClusterGovernorInfo>>(emptyList())
-    val clusterGovernors: StateFlow<List<ClusterGovernorInfo>> = _clusterGovernors.asStateFlow()
 
     private var userServiceArgs: Shizuku.UserServiceArgs? = null
 
@@ -100,6 +108,7 @@ object ShizukuHelper {
         _isShizukuAvailable.value = false
         _isServiceConnected.value = false
         _userService.value = null
+        _isHighPerformanceActive.value = false
         logAudit(
             action = "DESCONEXION_SHIZUKU",
             isSuccess = false,
@@ -124,15 +133,14 @@ object ShizukuHelper {
                     details = "Component: $name"
                 )
 
-                // Start benchmark loop which sets governor to performance
+                // Execute native high performance commands
                 try {
                     userServ.startBenchmarkLoop()
+                    _isHighPerformanceActive.value = true
+                    pullExecutionStatusFromService()
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error iniciando bucle", e)
+                    Log.e(TAG, "Error iniciando modo alto rendimiento", e)
                 }
-
-                // Verify real kernel governors
-                refreshGovernorStatus()
             }
         }
 
@@ -140,6 +148,7 @@ object ShizukuHelper {
             Log.w(TAG, "UserService desconectado: $name")
             _isServiceConnected.value = false
             _userService.value = null
+            _isHighPerformanceActive.value = false
             _serviceStatusMessage.value = "Servicio desconectado"
         }
     }
@@ -151,14 +160,11 @@ object ShizukuHelper {
             Shizuku.addRequestPermissionResultListener(permissionListener)
             val available = checkStatus()
 
-            refreshGovernorStatus()
-
-            // Record startup verification
             val startupLog = AuditLogEntry(
                 action = "ENCENDER_APP",
                 isSuccess = available,
-                summary = if (available) "Inicio exitoso: Shizuku disponible en el sistema" else "Advertencia al iniciar: Shizuku no está en ejecución",
-                details = if (available) "Binder activo. Listo para privilegios UID 2000." else "Abre Shizuku para otorgar permisos."
+                summary = if (available) "Inicio exitoso: Shizuku disponible en el sistema" else "Aviso: Shizuku no detectado",
+                details = if (available) "Binder activo (UID 2000 listo para ejecutar comandos del sistema)" else "Abre la app de Shizuku para iniciar el servicio"
             )
             _lastStartupResult.value = startupLog
             appendLog(startupLog)
@@ -181,16 +187,17 @@ object ShizukuHelper {
 
     fun destroy() {
         try {
+            restoreNativeSystemSettings()
+
             val shutdownLog = AuditLogEntry(
                 action = "APAGAR_APP",
                 isSuccess = true,
-                summary = "Apagado: Desvinculando servicio y liberando listeners de Shizuku",
-                details = "Ejecutando limpieza de procesos en segundo plano."
+                summary = "Apagado: Valores del sistema restaurados y servicio desvinculado",
+                details = "power_mode_type=0, high_performance_mode_on=0, thermalservice reset"
             )
             _lastShutdownResult.value = shutdownLog
             appendLog(shutdownLog)
 
-            restoreNormalGovernor()
             unbindService()
 
             Shizuku.removeBinderReceivedListener(binderReceivedListener)
@@ -271,6 +278,7 @@ object ShizukuHelper {
             Shizuku.unbindUserService(args, serviceConnection, true)
             _isServiceConnected.value = false
             _userService.value = null
+            _isHighPerformanceActive.value = false
             _serviceStatusMessage.value = "Servicio desvinculado"
 
             logAudit(
@@ -287,84 +295,146 @@ object ShizukuHelper {
     fun isRunning(): Boolean = _userService.value?.isRunning ?: false
 
     /**
-     * Executes shell script to force performance governor across all cores and logs the outcome.
+     * Executes native high performance mode commands:
+     * 1) settings put system power_mode_type 2
+     * 2) settings put secure high_performance_mode_on 1
+     * 3) cmd thermalservice override-status 0
+     * Captures exitCode, stdout, and stderr for each command.
      */
-    fun applyPerformanceGovernor(): Boolean {
-        val script = """
-            for p in /sys/devices/system/cpu/cpufreq/policy*; do
-                if [ -d "${'$'}p" ]; then
-                    echo performance > "${'$'}p/scaling_governor" 2>/dev/null
-                    if [ -f "${'$'}p/scaling_max_freq" ]; then
-                        cat "${'$'}p/scaling_max_freq" > "${'$'}p/scaling_min_freq" 2>/dev/null
-                    fi
-                fi
-            done
-            for c in /sys/devices/system/cpu/cpu*/cpufreq; do
-                if [ -d "${'$'}c" ]; then
-                    echo performance > "${'$'}c/scaling_governor" 2>/dev/null
-                fi
-            done
-        """.trimIndent()
-
-        val output = executeCommand(script)
-        val verified = refreshGovernorStatus()
-        val success = verified.any { it.isPerformance } || _isServiceConnected.value
-
-        logAudit(
-            action = "FIJAR_PERFORMANCE",
-            isSuccess = success,
-            summary = if (success) "ÉXITO: CPU Governor fijado en 'performance' al 100%" else "FALLO: No se pudo fijar governor (requiere permiso Shizuku)",
-            details = "Verificación en kernel: ${verified.joinToString { "${it.name}:${it.governor}" }}",
-            executedCommand = "echo performance > /sys/devices/system/cpu/cpufreq/policy*/scaling_governor",
-            commandOutput = output.ifEmpty { "Kernel write OK" }
+    fun applyNativeHighPerformance(): Boolean {
+        val commands = listOf(
+            "settings put system power_mode_type 2",
+            "settings put secure high_performance_mode_on 1",
+            "cmd thermalservice override-status 0"
         )
 
-        return success
+        val results = mutableListOf<CommandStatus>()
+        var allSuccess = true
+
+        for (cmd in commands) {
+            val rawOutput = executeCommand(cmd)
+            val isSuccess = !rawOutput.startsWith("ERROR")
+            val exitCode = if (isSuccess) 0 else 1
+            results.add(
+                CommandStatus(
+                    command = cmd,
+                    exitCode = exitCode,
+                    isSuccess = isSuccess,
+                    stdout = if (isSuccess) rawOutput else "",
+                    stderr = if (!isSuccess) rawOutput else ""
+                )
+            )
+            if (!isSuccess) allSuccess = false
+        }
+
+        _startupCommandResults.value = results
+        _isHighPerformanceActive.value = allSuccess
+
+        logAudit(
+            action = "MODO_ALTO_RENDIMIENTO",
+            isSuccess = allSuccess,
+            summary = if (allSuccess) "ÉXITO: Modo Alto Rendimiento y Thermal Bypass activados" else "FALLO parcial al aplicar ajustes de rendimiento",
+            details = results.joinToString(" | ") { "${it.command} -> exitCode=${it.exitCode}" }
+        )
+
+        return allSuccess
     }
 
     /**
-     * Executes shell script to restore normal governor across all cores and logs the outcome.
+     * Executes restoration commands:
+     * 1) settings put system power_mode_type 0
+     * 2) settings put secure high_performance_mode_on 0
+     * 3) cmd thermalservice reset
+     * Captures exitCode, stdout, and stderr for each command.
      */
-    fun restoreNormalGovernor(): Boolean {
-        val script = """
-            for p in /sys/devices/system/cpu/cpufreq/policy*; do
-                if [ -d "${'$'}p" ]; then
-                    if [ -f "${'$'}p/cpuinfo_min_freq" ]; then
-                        cat "${'$'}p/cpuinfo_min_freq" > "${'$'}p/scaling_min_freq" 2>/dev/null
-                    fi
-                    echo schedutil > "${'$'}p/scaling_governor" 2>/dev/null || echo interactive > "${'$'}p/scaling_governor" 2>/dev/null
-                fi
-            done
-            for c in /sys/devices/system/cpu/cpu*/cpufreq; do
-                if [ -d "${'$'}c" ]; then
-                    echo schedutil > "${'$'}c/scaling_governor" 2>/dev/null || echo interactive > "${'$'}c/scaling_governor" 2>/dev/null
-                fi
-            done
-        """.trimIndent()
-
-        val output = executeCommand(script)
-        val verified = refreshGovernorStatus()
-        val success = verified.none { it.isPerformance }
-
-        logAudit(
-            action = "RESTAURAR_NORMAL",
-            isSuccess = success,
-            summary = if (success) "ÉXITO: CPU Governor restaurado a estado normal/balanceado" else "FALLO: No se pudo restaurar governor",
-            details = "Verificación en kernel: ${verified.joinToString { "${it.name}:${it.governor}" }}",
-            executedCommand = "echo schedutil > /sys/devices/system/cpu/cpufreq/policy*/scaling_governor",
-            commandOutput = output.ifEmpty { "Kernel write OK" }
+    fun restoreNativeSystemSettings(): Boolean {
+        val commands = listOf(
+            "settings put system power_mode_type 0",
+            "settings put secure high_performance_mode_on 0",
+            "cmd thermalservice reset"
         )
 
-        return success
+        val results = mutableListOf<CommandStatus>()
+        var allSuccess = true
+
+        for (cmd in commands) {
+            val rawOutput = executeCommand(cmd)
+            val isSuccess = !rawOutput.startsWith("ERROR")
+            val exitCode = if (isSuccess) 0 else 1
+            results.add(
+                CommandStatus(
+                    command = cmd,
+                    exitCode = exitCode,
+                    isSuccess = isSuccess,
+                    stdout = if (isSuccess) rawOutput else "",
+                    stderr = if (!isSuccess) rawOutput else ""
+                )
+            )
+            if (!isSuccess) allSuccess = false
+        }
+
+        _shutdownCommandResults.value = results
+        _isHighPerformanceActive.value = false
+
+        logAudit(
+            action = "RESTAURAR_SISTEMA",
+            isSuccess = allSuccess,
+            summary = if (allSuccess) "ÉXITO: Ajustes de energía y servicio térmico restaurados" else "FALLO al restaurar ajustes",
+            details = results.joinToString(" | ") { "${it.command} -> exitCode=${it.exitCode}" }
+        )
+
+        return allSuccess
     }
 
-    fun refreshGovernorStatus(): List<ClusterGovernorInfo> {
-        val list = CpuMonitor.readCurrentClusterGovernors()
-        _clusterGovernors.value = list
-        val hasPerformance = list.any { it.isPerformance }
-        _isGovernorPerformance.value = hasPerformance
-        _governorStatusText.value = if (hasPerformance) "PERFORMANCE (100% Pico)" else "NORMAL (schedutil/balanceado)"
-        return list
+    fun pullExecutionStatusFromService() {
+        val service = _userService.value ?: return
+        try {
+            val raw = service.executionStatus
+            if (raw.isNotEmpty()) {
+                parseAndPublishCommandResults(raw)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching execution status from service", e)
+        }
+    }
+
+    private fun parseAndPublishCommandResults(raw: String) {
+        try {
+            val sections = raw.split("###")
+            val startupSection = sections.find { it.startsWith("STARTUP:") }?.removePrefix("STARTUP:")
+            val shutdownSection = sections.find { it.startsWith("SHUTDOWN:") }?.removePrefix("SHUTDOWN:")
+
+            if (!startupSection.isNullOrEmpty()) {
+                val list = startupSection.split(";;").mapNotNull { parseCommandChunk(it) }
+                if (list.isNotEmpty()) {
+                    _startupCommandResults.value = list
+                    _isHighPerformanceActive.value = list.all { it.isSuccess }
+                }
+            }
+
+            if (!shutdownSection.isNullOrEmpty()) {
+                val list = shutdownSection.split(";;").mapNotNull { parseCommandChunk(it) }
+                if (list.isNotEmpty()) {
+                    _shutdownCommandResults.value = list
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing command status chunks", e)
+        }
+    }
+
+    private fun parseCommandChunk(chunk: String): CommandStatus? {
+        if (chunk.isBlank()) return null
+        val parts = chunk.split("|", limit = 5)
+        return if (parts.size >= 5) {
+            CommandStatus(
+                command = parts[0],
+                exitCode = parts[1].toIntOrNull() ?: 0,
+                isSuccess = parts[2].toBoolean(),
+                stdout = parts[3],
+                stderr = parts[4]
+            )
+        } else null
     }
 
     fun executeCommand(command: String): String {
@@ -373,17 +443,17 @@ object ShizukuHelper {
             try {
                 service.executeCommand(command)
             } catch (e: Exception) {
-                "Error en llamada remota: ${e.message}"
+                "ERROR: ${e.message}"
             }
         } else {
-            // Local fallback
             try {
                 val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
-                val output = process.inputStream.bufferedReader().use { it.readText() }
-                process.waitFor()
-                output.trim()
+                val stdout = process.inputStream.bufferedReader().use { it.readText() }
+                val stderr = process.errorStream.bufferedReader().use { it.readText() }
+                val code = process.waitFor()
+                if (code == 0) stdout.trim() else "ERROR (exitCode $code): ${stderr.trim()}"
             } catch (e: Exception) {
-                "Error local: ${e.message}"
+                "ERROR: ${e.message}"
             }
         }
     }
@@ -397,9 +467,9 @@ object ShizukuHelper {
             executedCommand = executedCommand,
             commandOutput = commandOutput
         )
-        if (action.contains("ENCENDER", ignoreCase = true)) {
+        if (action.contains("ENCENDER", ignoreCase = true) || action.contains("MODO_ALTO", ignoreCase = true)) {
             _lastStartupResult.value = entry
-        } else if (action.contains("APAGAR", ignoreCase = true)) {
+        } else if (action.contains("APAGAR", ignoreCase = true) || action.contains("RESTAURAR", ignoreCase = true)) {
             _lastShutdownResult.value = entry
         }
         appendLog(entry)

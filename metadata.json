@@ -1,6 +1,6 @@
 {
-  "name": "Service Hub",
-  "description": "Android application with foreground service, wake lock, battery optimization management, and system overlay window controls.",
+  "name": "Game Mode",
+  "description": "Android application with Game Mode native performance optimization, system overlay controls, and CPU hardware telemetry.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

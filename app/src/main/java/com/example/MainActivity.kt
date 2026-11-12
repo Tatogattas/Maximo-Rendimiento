@@ -351,13 +351,13 @@ fun TelemetryMainScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "CPU Telemetry Monitor",
+                            text = "Game Mode v1.3",
                             fontWeight = FontWeight.Bold,
                             fontSize = 19.sp,
                             color = Color.White
                         )
                         Text(
-                            text = "/proc/stat • Consecutive Delta Analysis",
+                            text = "com.gamebooster.gamemode • Telemetría CPU",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF38BDF8)
                         )
@@ -501,17 +501,21 @@ fun TelemetryMainScreen(
                 }
             }
 
-            // AnTuTu Benchmark CPU Stress Test Card (Continuous parallel loops on all cores, Max Load)
+            // Native High Performance & Thermal Bypass Card (Shizuku UID 2000 - No math loops)
             item {
+                val isHighPerf by ShizukuHelper.isHighPerformanceActive.collectAsState()
+                val startupResults by ShizukuHelper.startupCommandResults.collectAsState()
+                val isConnected by ShizukuHelper.isServiceConnected.collectAsState()
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isBenchmarkActive) Color(0xFF450A0A).copy(alpha = 0.95f) else Color(0xFF1E293B).copy(alpha = 0.95f)
+                        containerColor = if (isHighPerf) Color(0xFF064E3B).copy(alpha = 0.95f) else Color(0xFF1E293B).copy(alpha = 0.95f)
                     ),
                     border = androidx.compose.foundation.BorderStroke(
                         1.5.dp,
-                        if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFFF59E0B).copy(alpha = 0.6f)
+                        if (isHighPerf) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.5f)
                     )
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -522,26 +526,26 @@ fun TelemetryMainScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.Calculate,
+                                    Icons.Default.Speed,
                                     contentDescription = null,
-                                    tint = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFFF59E0B)
+                                    tint = if (isHighPerf) Color(0xFF34D399) else Color(0xFF38BDF8)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "ANTUTU CPU STRESS TEST",
+                                    text = "MODO ALTO RENDIMIENTO (SHIZUKU)",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isBenchmarkActive) Color(0xFFFCA5A5) else Color(0xFFFCD34D),
+                                    color = if (isHighPerf) Color(0xFF6EE7B7) else Color(0xFF38BDF8),
                                     letterSpacing = 0.5.sp
                                 )
                             }
                             Surface(
-                                color = if (isBenchmarkActive) Color(0xFFEF4444).copy(alpha = 0.25f) else Color(0xFF64748B).copy(alpha = 0.25f),
+                                color = if (isHighPerf) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFF64748B).copy(alpha = 0.25f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = if (isBenchmarkActive) "100% CARGA MÁXIMA" else "EN ESPERA",
-                                    color = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF94A3B8),
+                                    text = if (isHighPerf) "ALTO RENDIMIENTO ACTIVO" else "MODO NORMAL (BALANCEADO)",
+                                    color = if (isHighPerf) Color(0xFF34D399) else Color(0xFF94A3B8),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -551,54 +555,66 @@ fun TelemetryMainScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Operaciones matemáticas complejas en bucles continuos sin pausas en todos los núcleos (${CpuMonitor.getCoreCount()} hilos en paralelo): matrices 4x4, series trigonométricas, fractales Mandelbrot y permutaciones SHA-256.",
+                            text = "Ajustes nativos del sistema Android y bypass de estrangulamiento térmico ejecutados mediante Shizuku (UID 2000 sin bucles de estrés):",
                             fontSize = 10.sp,
                             color = Color(0xFFCBD5E1)
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Operaciones: %,d".format(totalBenchmarkOperations),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF38BDF8)
-                            )
-                            Text(
-                                text = "${if (isBenchmarkActive) activeBenchmarkThreads else CpuMonitor.getCoreCount()} Hilos Paralelos",
-                                fontSize = 10.sp,
-                                color = Color(0xFF94A3B8)
-                            )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                "settings put system power_mode_type 2",
+                                "settings put secure high_performance_mode_on 1",
+                                "cmd thermalservice override-status 0"
+                            ).forEach { cmd ->
+                                val status = startupResults.find { it.command == cmd }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = cmd,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFFE2E8F0)
+                                    )
+                                    if (status != null) {
+                                        Text(
+                                            text = if (status.isSuccess) "exit:0 [OK]" else "exit:${status.exitCode} [ERR]",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (status.isSuccess) Color(0xFF34D399) else Color(0xFFF87171)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = {
-                                if (isBenchmarkActive) {
-                                    AppForegroundService.stopStress(context)
+                                if (isHighPerf) {
+                                    ShizukuHelper.restoreNativeSystemSettings()
                                 } else {
-                                    AppForegroundService.startStress(context)
+                                    ShizukuHelper.applyNativeHighPerformance()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(46.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isBenchmarkActive) Color(0xFFDC2626) else Color(0xFFD97706)
+                                containerColor = if (isHighPerf) Color(0xFF059669) else Color(0xFF0284C7)
                             )
                         ) {
                             Icon(
-                                if (isBenchmarkActive) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                if (isHighPerf) Icons.Default.Stop else Icons.Default.PlayArrow,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isBenchmarkActive) "DETENER STRESS TEST" else "INICIAR STRESS TEST (100% CARGA)",
+                                text = if (isHighPerf) "RESTAURAR MODO NORMAL DEL SISTEMA" else "ACTIVAR ALTO RENDIMIENTO NATIVO",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
@@ -892,7 +908,9 @@ fun TelemetryMainScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Real-Time Engine & AnTuTu Stress Status (Timer Eliminated)
+                        // Real-Time Engine & Shizuku Native Performance Status (Timer Eliminated)
+                        val isHighPerf by ShizukuHelper.isHighPerformanceActive.collectAsState()
+                        val isShizukuConnected by ShizukuHelper.isServiceConnected.collectAsState()
                         Surface(
                             color = Color(0xFF0F172A).copy(alpha = 0.8f),
                             shape = RoundedCornerShape(10.dp),
@@ -906,21 +924,21 @@ fun TelemetryMainScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "MONITOREO HARDWARE & TEST ANTUTU",
+                                        text = "MONITOREO HARDWARE & MODO NATIVO",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF38BDF8)
                                     )
                                     Text(
-                                        text = if (isBenchmarkActive) "100% CARGA" else "TIEMPO REAL",
+                                        text = if (isHighPerf) "ALTO RENDIMIENTO" else if (isShizukuConnected) "UID 2000 ACTIVO" else "TIEMPO REAL",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF10B981)
+                                        color = if (isHighPerf) Color(0xFF34D399) else Color(0xFF38BDF8)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "Temporizador eliminado: telemetría continua en tiempo real. Los bucles de estrés de AnTuTu se ejecutan en segundo plano sin pausas con múltiples hilos en paralelo manteniendo los núcleos al 100%.",
+                                    text = "Temporizador eliminado: telemetría continua en tiempo real. Modos gestionados vía Shizuku sin bucles matemáticos de estrés, optimizando la frecuencia operativa del hardware.",
                                     fontSize = 9.sp,
                                     color = Color(0xFFCBD5E1)
                                 )
@@ -994,7 +1012,7 @@ fun TransparentFullscreenTelemetryHUD(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "CPU TELEMETRY HUD (PANTALLA COMPLETA)",
+                                text = "GAME MODE v1.3 (HUD HORIZONTAL)",
                                 fontWeight = FontWeight.Black,
                                 fontSize = 14.sp,
                                 color = Color.White,
@@ -1173,13 +1191,14 @@ fun TransparentFullscreenTelemetryHUD(
                             )
                         }
 
-                        // AnTuTu Benchmark Stress Test Telemetry in HUD
+                        // Native High Performance Mode in HUD
+                        val isHighPerfHud by ShizukuHelper.isHighPerformanceActive.collectAsState()
                         Surface(
                             color = Color(0xFF1E293B).copy(alpha = cardBgAlpha),
                             shape = RoundedCornerShape(8.dp),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
-                                if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF38BDF8).copy(alpha = 0.4f)
+                                if (isHighPerfHud) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.4f)
                             ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1190,30 +1209,27 @@ fun TransparentFullscreenTelemetryHUD(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "AnTuTu CPU Stress Test",
+                                        text = "Alto Rendimiento Shizuku",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isBenchmarkActive) Color(0xFFFCA5A5) else Color.White
+                                        color = if (isHighPerfHud) Color(0xFF6EE7B7) else Color.White
                                     )
                                     Text(
-                                        text = if (isBenchmarkActive) "100% CARGA" else "INACTIVO",
+                                        text = if (isHighPerfHud) "ACTIVO (UID 2000)" else "BALANCEADO",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isBenchmarkActive) Color(0xFFEF4444) else Color(0xFF94A3B8)
+                                        color = if (isHighPerfHud) Color(0xFF34D399) else Color(0xFF94A3B8)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Ops: %,d | %d Hilos sin pausas".format(
-                                        totalBenchmarkOperations,
-                                        if (isBenchmarkActive) activeBenchmarkThreads else cpuSnapshot.cores.size
-                                    ),
-                                    fontSize = 10.sp,
+                                    text = "power_mode_type 2 | override-status 0",
+                                    fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = Color(0xFF38BDF8)
                                 )
                                 Text(
-                                    text = "Bucles continuos: Matrices, Trigonometría, Mandelbrot, SHA",
+                                    text = "Ajustes del sistema nativo sin bucles de estrés",
                                     fontSize = 8.sp,
                                     color = Color(0xFFCBD5E1),
                                     maxLines = 1
@@ -1332,8 +1348,8 @@ fun CoreGridCardTransparent(core: CoreUsage, cardAlpha: Float = 0.55f) {
 }
 
 /**
- * Second Tab: Audit & Verification Screen for Shizuku and CPU Governor
- * Clearly indicates whether previous codes succeeded or failed on startup and shutdown.
+ * Second Tab: Audit & Verification Screen for Shizuku and System Performance
+ * Clearly indicates whether startup and shutdown commands succeeded or failed with exit codes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1344,8 +1360,9 @@ fun ShizukuAuditScreen(
     val auditLogs by ShizukuHelper.auditLogs.collectAsState()
     val lastStartup by ShizukuHelper.lastStartupResult.collectAsState()
     val lastShutdown by ShizukuHelper.lastShutdownResult.collectAsState()
-    val isGovernorPerf by ShizukuHelper.isGovernorPerformance.collectAsState()
-    val clusterGovernors by ShizukuHelper.clusterGovernors.collectAsState()
+    val startupResults by ShizukuHelper.startupCommandResults.collectAsState()
+    val shutdownResults by ShizukuHelper.shutdownCommandResults.collectAsState()
+    val isHighPerf by ShizukuHelper.isHighPerformanceActive.collectAsState()
     val isServiceConnected by ShizukuHelper.isServiceConnected.collectAsState()
     val isShizukuAvailable by ShizukuHelper.isShizukuAvailable.collectAsState()
     val isPermissionGranted by ShizukuHelper.isPermissionGranted.collectAsState()
@@ -1357,13 +1374,13 @@ fun ShizukuAuditScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "Auditoría & Estado Shizuku",
+                            text = "Game Mode v1.3 • Auditoría",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = Color.White
                         )
                         Text(
-                            text = "Verificación de códigos al encender y apagar",
+                            text = "com.gamebooster.gamemode • Verificación de exitCode",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF38BDF8)
                         )
@@ -1371,7 +1388,10 @@ fun ShizukuAuditScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { ShizukuHelper.refreshGovernorStatus() },
+                        onClick = {
+                            ShizukuHelper.pullExecutionStatusFromService()
+                            ShizukuHelper.checkStatus()
+                        },
                         modifier = Modifier.testTag("refresh_audit_button")
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refrescar estado", tint = Color.White)
@@ -1393,7 +1413,80 @@ fun ShizukuAuditScreen(
             item {
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Estado de códigos al Encender y al Apagar
+                // Estado de Comandos al Encender / Iniciar
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF34D399))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "AL ENCENDER / INICIAR (ALTO RENDIMIENTO)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF6EE7B7),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            Surface(
+                                color = if (isHighPerf) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFF64748B).copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = if (isHighPerf) "ACTIVO" else "PENDIENTE",
+                                    color = if (isHighPerf) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Ejecución de ajustes nativos de energía y bypass térmico con Shizuku.newProcess (UID 2000):",
+                            fontSize = 10.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val defaultStartupCmds = listOf(
+                            "settings put system power_mode_type 2",
+                            "settings put secure high_performance_mode_on 1",
+                            "cmd thermalservice override-status 0"
+                        )
+
+                        defaultStartupCmds.forEach { cmd ->
+                            val status = startupResults.find { it.command == cmd }
+                            CommandExecutionItem(
+                                command = cmd,
+                                status = status,
+                                defaultDesc = when {
+                                    cmd.contains("power_mode_type") -> "Fija el modo de energía del sistema en alto rendimiento (tipo 2)"
+                                    cmd.contains("high_performance_mode_on") -> "Activa el flag de modo de alto rendimiento seguro del sistema"
+                                    else -> "Bypass de restricciones térmicas a nivel sistema (status 0 = normal)"
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+                }
+            }
+
+            // Estado de Comandos al Apagar / Restaurar
+            item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -1403,286 +1496,109 @@ fun ShizukuAuditScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF38BDF8))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "VERIFICACIÓN DE EJECUCIÓN DE CÓDIGOS",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF94A3B8),
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Resultado al Encender la app
-                        val startupSuccess = lastStartup?.isSuccess ?: isServiceConnected
-                        Surface(
-                            color = if (startupSuccess) Color(0xFF065F46).copy(alpha = 0.35f) else Color(0xFF7F1D1D).copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (startupSuccess) Color(0xFF10B981) else Color(0xFFEF4444)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    if (startupSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
-                                    contentDescription = null,
-                                    tint = if (startupSuccess) Color(0xFF34D399) else Color(0xFFF87171),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = "AL ENCENDER LA APP",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            text = if (startupSuccess) "FUNCIONÓ (ÉXITO)" else "FALLÓ",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = if (startupSuccess) Color(0xFF34D399) else Color(0xFFF87171)
-                                        )
-                                    }
-                                    Text(
-                                        text = lastStartup?.summary ?: if (startupSuccess) "Servicio Shizuku conectado con UID 2000 y bucle de benchmark activado." else "Shizuku no está disponible o el permiso no fue concedido.",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFFE2E8F0)
-                                    )
-                                    if (lastStartup?.formattedTime != null) {
-                                        Text(
-                                            text = "Hora: ${lastStartup?.formattedTime}",
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = Color(0xFF94A3B8)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Resultado al Apagar el servicio
-                        val shutdownSuccess = lastShutdown?.isSuccess == true
-                        Surface(
-                            color = if (shutdownSuccess) Color(0xFF065F46).copy(alpha = 0.35f) else Color(0xFF1E293B),
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (shutdownSuccess) Color(0xFF10B981) else Color(0xFF64748B)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    if (shutdownSuccess) Icons.Default.CheckCircle else Icons.Default.Info,
-                                    contentDescription = null,
-                                    tint = if (shutdownSuccess) Color(0xFF34D399) else Color(0xFF38BDF8),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = "AL APAGAR EL SERVICIO",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            text = if (shutdownSuccess) "FUNCIONÓ (RESTAURADO)" else "EN EJECUCIÓN",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = if (shutdownSuccess) Color(0xFF34D399) else Color(0xFF38BDF8)
-                                        )
-                                    }
-                                    Text(
-                                        text = lastShutdown?.summary ?: "El servicio está actualmente activo. Al detenerlo, se restaurará el governor a schedutil/normal.",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFFCBD5E1)
-                                    )
-                                    if (lastShutdown?.formattedTime != null) {
-                                        Text(
-                                            text = "Hora: ${lastShutdown?.formattedTime}",
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = Color(0xFF94A3B8)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Real-Time CPU Governor Policy Status Card
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isGovernorPerf) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.5f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Speed, contentDescription = null, tint = if (isGovernorPerf) Color(0xFF10B981) else Color(0xFF38BDF8))
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF38BDF8))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "ESTADO DEL REGULADOR DE CPU (KERNEL)",
+                                    text = "AL APAGAR / DETENER (RESTAURACIÓN)",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF94A3B8),
+                                    color = Color(0xFF7DD3FC),
                                     letterSpacing = 0.5.sp
                                 )
                             }
+                            val hasRestored = shutdownResults.isNotEmpty()
                             Surface(
-                                color = if (isGovernorPerf) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFF38BDF8).copy(alpha = 0.2f),
+                                color = if (hasRestored) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF64748B).copy(alpha = 0.25f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = if (isGovernorPerf) "PERFORMANCE 100%" else "NORMAL (SCHEDUTIL)",
-                                    color = if (isGovernorPerf) Color(0xFF34D399) else Color(0xFF38BDF8),
+                                    text = if (hasRestored) "RESTAURADO" else "EN ESPERA",
+                                    color = if (hasRestored) Color(0xFF38BDF8) else Color(0xFF94A3B8),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Políticas detectadas en /sys/devices/system/cpu/cpufreq:",
+                            text = "Comandos de retorno a valores por defecto ejecutados en onDestroy / stop:",
                             fontSize = 10.sp,
                             color = Color(0xFFCBD5E1)
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        // Policies breakdown
-                        clusterGovernors.forEach { cluster ->
-                            Surface(
-                                color = Color(0xFF0F172A).copy(alpha = 0.8f),
-                                shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (cluster.isPerformance) Color(0xFF10B981).copy(alpha = 0.4f) else Color(0xFF38BDF8).copy(alpha = 0.25f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = cluster.name,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            text = "Rango: ${cluster.minFreqMhz} - ${cluster.maxFreqMhz}",
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = Color(0xFF94A3B8)
-                                        )
-                                    }
-                                    Surface(
-                                        color = if (cluster.isPerformance) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFF64748B).copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = cluster.governor.uppercase(),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (cluster.isPerformance) Color(0xFF34D399) else Color(0xFFE2E8F0),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
+                        val defaultShutdownCmds = listOf(
+                            "settings put system power_mode_type 0",
+                            "settings put secure high_performance_mode_on 0",
+                            "cmd thermalservice reset"
+                        )
+
+                        defaultShutdownCmds.forEach { cmd ->
+                            val status = shutdownResults.find { it.command == cmd }
+                            CommandExecutionItem(
+                                command = cmd,
+                                status = status,
+                                defaultDesc = when {
+                                    cmd.contains("power_mode_type") -> "Restaura el modo de energía estándar (tipo 0)"
+                                    cmd.contains("high_performance_mode_on") -> "Desactiva el modo de alto rendimiento seguro"
+                                    else -> "Restaura el control térmico automático del hardware"
                                 }
-                            }
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
                         }
+                    }
+                }
+            }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+            // Quick Manual Action Controls
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val success = ShizukuHelper.applyNativeHighPerformance()
+                            Toast.makeText(
+                                context,
+                                if (success) "Alto Rendimiento Aplicado Exitosamente" else "Error al aplicar (verifica Shizuku)",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Activar Alto Rendimiento", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
 
-                        // Manual Control Buttons to test immediately
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    val success = ShizukuHelper.applyPerformanceGovernor()
-                                    Toast.makeText(
-                                        context,
-                                        if (success) "Governor fijado a Performance" else "Error al fijar governor (verifica Shizuku)",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                },
-                                modifier = Modifier.weight(1f).height(42.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
-                            ) {
-                                Text("Probar Performance", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            Button(
-                                onClick = {
-                                    val success = ShizukuHelper.restoreNormalGovernor()
-                                    Toast.makeText(
-                                        context,
-                                        if (success) "Governor restaurado a Normal" else "Error al restaurar",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                },
-                                modifier = Modifier.weight(1f).height(42.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
-                            ) {
-                                Text("Probar Normal", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
+                    Button(
+                        onClick = {
+                            val success = ShizukuHelper.restoreNativeSystemSettings()
+                            Toast.makeText(
+                                context,
+                                if (success) "Ajustes Restaurados a Normal" else "Error al restaurar",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                    ) {
+                        Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Restaurar Normal", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1762,6 +1678,50 @@ fun ShizukuAuditScreen(
                                 Text("Re-Vincular", fontSize = 10.sp)
                             }
                         }
+                    }
+                }
+            }
+
+            // Real Hardware & Processor Info Card
+            item {
+                val hw = cpuSnapshot.hardwareDetails ?: CpuMonitor.getHardwareDetails()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B).copy(alpha = 0.95f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Memory, contentDescription = null, tint = Color(0xFF38BDF8))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "DETALLES DEL HARDWARE Y TELEMETRÍA",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = hw.processorName,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Arquitectura: ${hw.architecture} • Clústeres: ${hw.clusterLayout}",
+                            fontSize = 10.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+                        Text(
+                            text = "Rango de frecuencias: ${hw.minFreqFormatted} a ${hw.maxFreqFormatted}",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color(0xFFFCD34D)
+                        )
                     }
                 }
             }
@@ -1898,6 +1858,88 @@ fun ShizukuAuditScreen(
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun CommandExecutionItem(
+    command: String,
+    status: CommandStatus?,
+    defaultDesc: String
+) {
+    Surface(
+        color = Color(0xFF0F172A).copy(alpha = 0.85f),
+        shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (status == null) Color(0xFF38BDF8).copy(alpha = 0.25f)
+            else if (status.isSuccess) Color(0xFF10B981).copy(alpha = 0.5f)
+            else Color(0xFFEF4444).copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$ $command",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF38BDF8),
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    color = if (status == null) Color(0xFF64748B).copy(alpha = 0.25f)
+                    else if (status.isSuccess) Color(0xFF10B981).copy(alpha = 0.25f)
+                    else Color(0xFFEF4444).copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = if (status == null) "PENDIENTE"
+                        else if (status.isSuccess) "exitCode: 0 [ÉXITO]"
+                        else "exitCode: ${status.exitCode} [FALLO]",
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = if (status == null) Color(0xFF94A3B8)
+                        else if (status.isSuccess) Color(0xFF34D399)
+                        else Color(0xFFF87171),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = defaultDesc,
+                fontSize = 9.sp,
+                color = Color(0xFF94A3B8)
+            )
+
+            if (status != null) {
+                if (status.stdout.isNotEmpty()) {
+                    Text(
+                        text = "stdout: ${status.stdout}",
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF6EE7B7)
+                    )
+                }
+                if (status.stderr.isNotEmpty()) {
+                    Text(
+                        text = "stderr: ${status.stderr}",
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFFFCA5A5)
+                    )
+                }
             }
         }
     }

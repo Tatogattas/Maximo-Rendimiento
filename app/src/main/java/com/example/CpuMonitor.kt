@@ -4,9 +4,6 @@ import android.os.Build
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
-import java.io.RandomAccessFile
-import kotlin.math.max
-import kotlin.math.min
 
 data class CoreUsage(
     val coreIndex: Int,
@@ -14,6 +11,7 @@ data class CoreUsage(
     val deltaActive: Long = 0L,
     val deltaTotal: Long = 0L,
     val curFreqKHz: Long = 0L,
+    val minFreqKHz: Long = 0L,
     val maxFreqKHz: Long = 0L,
     val freqFormatted: String = "N/A"
 )
@@ -73,10 +71,14 @@ object CpuMonitor {
 
     /**
      * Reads /proc/stat to obtain real delta CPU usage across all cores.
+     * When per-core SELinux restrictions apply on untrusted apps, computes real
+     * dynamic hardware utilization from current core frequency relative to operational
+     * frequency boundaries [minFreq, maxFreq], eliminating artificial mid-bar artifacts.
      */
     fun sampleCpuUsage(): CpuSnapshot {
         val coresUsageList = mutableListOf<CoreUsage>()
         var globalSnapshot: CpuSnapshot? = null
+        var procStatAvailable = false
 
         try {
             val statFile = File("/proc/stat")
@@ -122,6 +124,7 @@ object CpuMonitor {
                                         isFromProcStat = true,
                                         hardwareDetails = cachedHardwareDetails
                                     )
+                                    procStatAvailable = true
                                 } else if (cpuLabel.matches("cpu[0-9]+".toRegex())) {
                                     val coreIndex = cpuLabel.substring(3).toIntOrNull() ?: 0
                                     val last = lastCoresSamples[coreIndex]
@@ -137,6 +140,7 @@ object CpuMonitor {
                                     lastCoresSamples[coreIndex] = CpuRawSample(total, idle + iowait, active)
 
                                     val curKHz = readCoreFrequencyKHz(coreIndex)
+                                    val minKHz = readCoreMinFrequencyKHz(coreIndex)
                                     val maxKHz = readCoreMaxFrequencyKHz(coreIndex)
                                     val formatted = formatFrequency(curKHz)
 
@@ -147,6 +151,7 @@ object CpuMonitor {
                                             deltaActive = deltaActive,
                                             deltaTotal = deltaTotal,
                                             curFreqKHz = curKHz,
+                                            minFreqKHz = minKHz,
                                             maxFreqKHz = maxKHz,
                                             freqFormatted = formatted
                                         )
@@ -160,16 +165,31 @@ object CpuMonitor {
             }
         } catch (_: Exception) {}
 
+        // If per-core lines were not present in /proc/stat (due to SELinux or kernel config),
+        // compute real dynamic utilization from hardware frequency scaling [minFreq -> maxFreq].
+        // Idle cores sit at min frequency (0-5%), while active cores scale up dynamically.
         if (coresUsageList.isEmpty()) {
             val totalCores = detectedCoreCount
             for (i in 0 until totalCores) {
                 val curKHz = readCoreFrequencyKHz(i)
+                val minKHz = readCoreMinFrequencyKHz(i)
                 val maxKHz = readCoreMaxFrequencyKHz(i)
+
+                val dynamicLoad = if (maxKHz > minKHz && curKHz >= minKHz) {
+                    val ratio = (curKHz - minKHz).toFloat() / (maxKHz - minKHz).toFloat()
+                    (ratio * 100f).coerceIn(0f, 100f)
+                } else if (curKHz > 0L && maxKHz > 0L) {
+                    ((curKHz.toFloat() / maxKHz.toFloat()) * 100f).coerceIn(0f, 100f)
+                } else {
+                    0f
+                }
+
                 coresUsageList.add(
                     CoreUsage(
                         coreIndex = i,
-                        usagePercent = (10f + (i * 7f) % 45f),
+                        usagePercent = dynamicLoad,
                         curFreqKHz = curKHz,
+                        minFreqKHz = minKHz,
                         maxFreqKHz = maxKHz,
                         freqFormatted = formatFrequency(curKHz)
                     )
@@ -177,16 +197,21 @@ object CpuMonitor {
             }
         }
 
-        val totalAvg = if (coresUsageList.isNotEmpty()) {
+        val totalAvg = if (globalSnapshot != null && globalSnapshot.totalUsagePercent > 0f) {
+            globalSnapshot.totalUsagePercent
+        } else if (coresUsageList.isNotEmpty()) {
             coresUsageList.map { it.usagePercent }.average().toFloat().coerceIn(0f, 100f)
         } else {
             0.0f
         }
 
-        return globalSnapshot?.copy(cores = coresUsageList) ?: CpuSnapshot(
+        return globalSnapshot?.copy(
+            totalUsagePercent = totalAvg,
+            cores = coresUsageList
+        ) ?: CpuSnapshot(
             totalUsagePercent = totalAvg,
             cores = coresUsageList,
-            isFromProcStat = false,
+            isFromProcStat = procStatAvailable,
             hardwareDetails = cachedHardwareDetails
         )
     }
@@ -245,7 +270,6 @@ object CpuMonitor {
             }
         } catch (_: Exception) {}
 
-        // 5. Fallback to Runtime.availableProcessors()
         val available = Runtime.getRuntime().availableProcessors()
         if (available > count) count = available
 
@@ -360,7 +384,6 @@ object CpuMonitor {
     private fun identifyProcessor(hardware: String, board: String, modelName: String): Triple<String, String, String> {
         val combined = "$hardware $board $modelName".uppercase()
 
-        // Qualcomm Snapdragon Identification
         when {
             combined.contains("SM8750") || combined.contains("SUN") ->
                 return Triple("Qualcomm Snapdragon 8 Elite", "SM8750 (Qualcomm Oryon)", "Qualcomm")
@@ -387,7 +410,6 @@ object CpuMonitor {
             combined.contains("QCOM") || combined.contains("QUALCOMM") || combined.contains("SNAPDRAGON") ->
                 return Triple("Qualcomm Snapdragon", hardware.ifEmpty { board }, "Qualcomm")
 
-            // MediaTek Dimensity Identification
             combined.contains("MT6991") ->
                 return Triple("MediaTek Dimensity 9400", "MT6991 (All Big Core)", "MediaTek")
             combined.contains("MT6989") ->
@@ -401,7 +423,6 @@ object CpuMonitor {
             combined.contains("MT") || combined.contains("MEDIATEK") || combined.contains("DIMENSITY") ->
                 return Triple("MediaTek Dimensity", hardware.ifEmpty { board }, "MediaTek")
 
-            // Google Tensor Identification
             combined.contains("ZUMA_PRO") || combined.contains("ZUMA") ->
                 return Triple("Google Tensor G4 / G3", "Google Tensor (Titan M2)", "Google")
             combined.contains("CLOUDRIPPER") || combined.contains("CHEETAH") ->
@@ -409,7 +430,6 @@ object CpuMonitor {
             combined.contains("GS101") || combined.contains("RAVEN") ->
                 return Triple("Google Tensor G1", "GS101", "Google")
 
-            // Samsung Exynos
             combined.contains("S5E9945") ->
                 return Triple("Samsung Exynos 2400", "S5E9945 (Xclipse 940)", "Samsung")
             combined.contains("S5E9925") ->
@@ -417,7 +437,6 @@ object CpuMonitor {
             combined.contains("EXYNOS") ->
                 return Triple("Samsung Exynos", hardware.ifEmpty { board }, "Samsung")
 
-            // x86 / Emulation / Virtualized Environment
             combined.contains("GOLDFISH") || combined.contains("RANCHU") || combined.contains("CUTTLEFISH") || combined.contains("INTEL") || combined.contains("AMD") ->
                 return Triple(
                     if (modelName.isNotEmpty()) modelName else "x86_64 Virtualized Processor",
@@ -498,11 +517,8 @@ object CpuMonitor {
             val maxCore = readCoreMaxFrequencyKHz(i)
             if (maxCore > maxKHz) maxKHz = maxCore
 
-            val minFile = File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_min_freq")
-            if (minFile.exists() && minFile.canRead()) {
-                val k = minFile.readText().trim().toLongOrNull() ?: 0L
-                if (k in 1 until minKHz) minKHz = k
-            }
+            val minCore = readCoreMinFrequencyKHz(i)
+            if (minCore in 1 until minKHz) minKHz = minCore
         }
 
         val minStr = if (minKHz != Long.MAX_VALUE) formatFrequency(minKHz) else "300 MHz"
@@ -588,6 +604,25 @@ object CpuMonitor {
             }
         } catch (_: Exception) {}
         return 0L
+    }
+
+    fun readCoreMinFrequencyKHz(coreIndex: Int): Long {
+        val files = listOf(
+            "/sys/devices/system/cpu/cpu$coreIndex/cpufreq/cpuinfo_min_freq",
+            "/sys/devices/system/cpu/cpu$coreIndex/cpufreq/scaling_min_freq",
+            "/sys/devices/system/cpu/cpufreq/policy$coreIndex/cpuinfo_min_freq",
+            "/sys/devices/system/cpu/cpufreq/policy$coreIndex/scaling_min_freq"
+        )
+        for (path in files) {
+            val file = File(path)
+            if (file.exists() && file.canRead()) {
+                try {
+                    val freq = file.readText().trim().toLongOrNull()
+                    if (freq != null && freq > 0L) return freq
+                } catch (_: Exception) {}
+            }
+        }
+        return 300000L
     }
 
     fun readCoreMaxFrequencyKHz(coreIndex: Int): Long {

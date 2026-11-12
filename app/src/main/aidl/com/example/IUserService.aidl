@@ -6,4 +6,5 @@ interface IUserService {
     void stopBenchmarkLoop() = 2;
     boolean isRunning() = 3;
     String executeCommand(String command) = 4;
+    String getExecutionStatus() = 5;
 }
